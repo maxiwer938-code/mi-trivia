@@ -29,7 +29,7 @@ class MainActivity : AppCompatActivity() {
         Pregunta("¿Cuántos jugadores juegan por equipo en la cancha en fútbol?", listOf("9", "10", "11", "12"), 2),
         Pregunta("¿En qué año ganó Argentina su tercer Mundial?", listOf("2014", "2018", "2022", "2010"), 2),
         Pregunta("¿Cuál es el animal terrestre más grande?", listOf("Elefante africano", "Jirafa", "Rinoceronte", "Oso"), 0),
-        Pregunta("¿Cuántos colores tiene el arcoíris?", listOf("5", "6", "7", "8"), 2),
+        Pregunta("¿Cuántos colores tiene el arcoíris?", listOf("5", "6", "7", "8"), 2, "stainless-images-JzCf5Y3XmFU-unsplash"),
         Pregunta("¿Qué gas necesitamos respirar para vivir?", listOf("Nitrógeno", "Oxígeno", "Helio", "Hidrógeno"), 1),
         Pregunta("¿Cuál es el país más grande del mundo?", listOf("China", "Canadá", "Estados Unidos", "Rusia"), 3),
         
