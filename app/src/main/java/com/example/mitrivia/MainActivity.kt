@@ -32,7 +32,6 @@ class MainActivity : AppCompatActivity() {
         Pregunta("¿Cuántos colores tiene el arcoíris?", listOf("5", "6", "7", "8"), 2, "stainless-images-JzCf5Y3XmFU-unsplash"),
         Pregunta("¿Qué gas necesitamos respirar para vivir?", listOf("Nitrógeno", "Oxígeno", "Helio", "Hidrógeno"), 1),
         Pregunta("¿Cuál es el país más grande del mundo?", listOf("China", "Canadá", "Estados Unidos", "Rusia"), 3),
-        
         Pregunta("¿Cuál es el elemento químico cuyo símbolo es Au?", listOf("Plata", "Oro", "Cobre", "Aluminio"), 1),
         Pregunta("¿En qué continente se encuentra Egipto?", listOf("África", "Asia", "Europa", "América"), 0),
         Pregunta("¿Cuál es la montaña más alta del mundo?", listOf("K2", "Aconcagua", "Everest", "Kilimanjaro"), 2),
@@ -43,7 +42,6 @@ class MainActivity : AppCompatActivity() {
         Pregunta("¿Cuál es el río más largo del mundo?", listOf("Nilo", "Amazonas", "Misisipi", "Yangtsé"), 1),
         Pregunta("¿En qué año comenzó la Segunda Guerra Mundial?", listOf("1939", "1945", "1914", "1941"), 0),
         Pregunta("¿Cuál es la moneda oficial de Japón?", listOf("Yuan", "Dólar", "Yen", "Won"), 2),
-
         Pregunta("¿Cuál es el país con mayor población del mundo?", listOf("India", "China", "Estados Unidos", "Indonesia"), 0),
         Pregunta("¿Qué instrumento musical tiene 88 teclas por lo general?", listOf("Guitarra", "Violín", "Piano", "Batería"), 2),
         Pregunta("¿En qué año llegó el hombre a la Luna?", listOf("1965", "1969", "1972", "1958"), 1),
