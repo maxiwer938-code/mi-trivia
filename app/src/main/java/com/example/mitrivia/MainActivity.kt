@@ -6,16 +6,22 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
-data class Pregunta(val texto: String, val opciones: List<String>, val correcta: Int)
+data class Pregunta(
+    val texto: String, 
+    val opciones: List<String>, 
+    val correcta: Int, 
+    val imagenNombre: String? = null // Opcional: nombre del archivo en res/drawable sin la extensión
+)
 
 class MainActivity : AppCompatActivity() {
 
     private val todas = listOf(
-        // Originales
+        // Preguntas (pulpas con o sin imagen. Si querés imagen, le pasás el nombre del archivo al final, ej: "obelisco")
         Pregunta("¿Cuál es la capital de Argentina?", listOf("Córdoba", "Buenos Aires", "Rosario", "Mendoza"), 1),
         Pregunta("¿Cuántos planetas tiene el sistema solar?", listOf("7", "8", "9", "10"), 1),
         Pregunta("¿Quién pintó la Mona Lisa?", listOf("Picasso", "Van Gogh", "Leonardo da Vinci", "Dalí"), 2),
@@ -27,7 +33,6 @@ class MainActivity : AppCompatActivity() {
         Pregunta("¿Qué gas necesitamos respirar para vivir?", listOf("Nitrógeno", "Oxígeno", "Helio", "Hidrógeno"), 1),
         Pregunta("¿Cuál es el país más grande del mundo?", listOf("China", "Canadá", "Estados Unidos", "Rusia"), 3),
         
-        // Primera tanda agregada
         Pregunta("¿Cuál es el elemento químico cuyo símbolo es Au?", listOf("Plata", "Oro", "Cobre", "Aluminio"), 1),
         Pregunta("¿En qué continente se encuentra Egipto?", listOf("África", "Asia", "Europa", "América"), 0),
         Pregunta("¿Cuál es la montaña más alta del mundo?", listOf("K2", "Aconcagua", "Everest", "Kilimanjaro"), 2),
@@ -39,14 +44,13 @@ class MainActivity : AppCompatActivity() {
         Pregunta("¿En qué año comenzó la Segunda Guerra Mundial?", listOf("1939", "1945", "1914", "1941"), 0),
         Pregunta("¿Cuál es la moneda oficial de Japón?", listOf("Yuan", "Dólar", "Yen", "Won"), 2),
 
-        // ¡Nuevas preguntas agregadas recién!
         Pregunta("¿Cuál es el país con mayor población del mundo?", listOf("India", "China", "Estados Unidos", "Indonesia"), 0),
         Pregunta("¿Qué instrumento musical tiene 88 teclas por lo general?", listOf("Guitarra", "Violín", "Piano", "Batería"), 2),
         Pregunta("¿En qué año llegó el hombre a la Luna?", listOf("1965", "1969", "1972", "1958"), 1),
         Pregunta("¿Cuál es la capital de Australia?", listOf("Sídney", "Melbourne", "Canberra", "Brisbane"), 2),
         Pregunta("¿Cuál es el mamífero capaz de volar?", listOf("Avestruz", "Pingüino", "Murciélago", "Ardilla voladora"), 2),
         Pregunta("¿Quién formuló la teoría de la relatividad?", listOf("Isaac Newton", "Albert Einstein", "Galileo Galilei", "Nikola Tesla"), 1),
-        Pregunta("¿Cuál es el idioma más hablado del mundo por número de hablantes nativos?", listOf("Inglés", "Español", "Mandarín", "Hindi"), 2),
+        Pregunta("¿Cuál es the idioma más hablado del mundo por número de hablantes nativos?", listOf("Inglés", "Español", "Mandarín", "Hindi"), 2),
         Pregunta("¿Cuántos lados tiene un hexágono?", listOf("5", "6", "7", "8"), 1),
         Pregunta("¿En qué país se originaron los Juegos Olímpicos?", listOf("Italia", "Grecia", "Egipto", "Francia"), 1),
         Pregunta("¿Cuál es el metal líquido a temperatura ambiente?", listOf("Hierro", "Mercurio", "Platino", "Plomo"), 1)
@@ -58,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private var respondida = false
 
     private lateinit var titulo: TextView
+    private lateinit var imagenPregunta: ImageView
     private lateinit var pregunta: TextView
     private lateinit var botones: List<Button>
 
@@ -70,11 +75,25 @@ class MainActivity : AppCompatActivity() {
 
         titulo = TextView(this)
         titulo.textSize = 18f
-        pregunta = TextView(this)
-        pregunta.textSize = 26f
-        pregunta.setPadding(0, 48, 0, 48)
 
+        // Creamos el componente de imagen dinámico
+        imagenPregunta = ImageView(this)
+        imagenPregunta.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            450 // Altura en píxeles para la imagen
+        ).apply {
+            setMargins(0, 24, 0, 24)
+        }
+        imagenPregunta.scaleType = ImageView.ScaleType.CENTER_CROP
+        imagenPregunta.visibility = View.GONE // Oculto por defecto hasta que toque una pregunta con imagen
+
+        pregunta = TextView(this)
+        pregunta.textSize = 24f
+        pregunta.setPadding(0, 24, 0, 48)
+
+        // Agregamos los elementos al orden visual del layout
         layout.addView(titulo)
+        layout.addView(imagenPregunta)
         layout.addView(pregunta)
 
         botones = List(4) { i ->
@@ -95,16 +114,33 @@ class MainActivity : AppCompatActivity() {
             it.setTextColor(Color.BLACK)
             it.visibility = View.VISIBLE
         }
+        
         if (indice >= lista.size) {
             titulo.text = "Fin del juego"
+            imagenPregunta.visibility = View.GONE
             pregunta.text = "Tu puntaje: $puntos de ${lista.size}"
             botones[0].text = "Jugar de nuevo"
             for (i in 1..3) botones[i].visibility = View.GONE
             return
         }
+
         val p = lista[indice]
         titulo.text = "Pregunta ${indice + 1} de ${lista.size}  |  Puntos: $puntos"
         pregunta.text = p.texto
+
+        // Manejo de la imagen de la pregunta
+        if (p.imagenNombre != null) {
+            val resId = resources.getIdentifier(p.imagenNombre, "drawable", packageName)
+            if (resId != 0) {
+                imagenPregunta.setImageResource(resId)
+                imagenPregunta.visibility = View.VISIBLE
+            } else {
+                imagenPregunta.visibility = View.GONE
+            }
+        } else {
+            imagenPregunta.visibility = View.GONE
+        }
+
         for (i in 0..3) botones[i].text = p.opciones[i]
     }
 
