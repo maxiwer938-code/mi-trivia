@@ -2,6 +2,7 @@ package com.example.mitrivia
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
@@ -24,9 +25,23 @@ data class Pregunta(
 
 class MainActivity : AppCompatActivity() {
 
-    private val categorias = listOf("Videojuegos", "Fútbol", "Cine y series", "Ciencia y naturaleza")
+    private val categorias = listOf(
+        "Videojuegos", "Fútbol", "Cine y series", "Ciencia y naturaleza",
+        "Historia", "Geografía", "Música"
+    )
     private val nombresDif = listOf("Fácil", "Medio", "Difícil")
     private val tiempoPorPregunta = 15
+
+    private val colores = mapOf(
+        "Videojuegos" to Color.parseColor("#7E57C2"),
+        "Fútbol" to Color.parseColor("#2E7D32"),
+        "Cine y series" to Color.parseColor("#C62828"),
+        "Ciencia y naturaleza" to Color.parseColor("#1565C0"),
+        "Historia" to Color.parseColor("#E65100"),
+        "Geografía" to Color.parseColor("#00796B"),
+        "Música" to Color.parseColor("#AD1457"),
+        "Mezcla" to Color.parseColor("#455A64")
+    )
 
     private var todas: List<Pregunta> = emptyList()
     private var catElegida = "Mezcla"
@@ -39,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private var cincuenta = 2
     private var saltos = 1
     private var respondida = false
+    private val falladas = ArrayList<Pregunta>()
     private val handler = Handler(Looper.getMainLooper())
     private var timer: CountDownTimer? = null
 
@@ -107,6 +123,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun record(dif: Int): Int = prefs().getInt("record_${catElegida}_$dif", 0)
 
+    private fun colorDe(cat: String): Int = colores[cat] ?: Color.DKGRAY
+
+    private fun fondo(color: Int): GradientDrawable {
+        val g = GradientDrawable()
+        g.setColor(color)
+        g.cornerRadius = 48f
+        return g
+    }
+
     private fun texto(s: String, size: Float, margenArriba: Int = 0): TextView {
         val t = TextView(this)
         t.text = s
@@ -116,9 +141,16 @@ class MainActivity : AppCompatActivity() {
         return t
     }
 
-    private fun boton(s: String, alClick: () -> Unit): Button {
+    private fun boton(
+        s: String,
+        color: Int = Color.parseColor("#455A64"),
+        colorTexto: Int = Color.WHITE,
+        alClick: () -> Unit
+    ): Button {
         val b = Button(this)
         b.text = s
+        b.background = fondo(color)
+        b.setTextColor(colorTexto)
         b.setOnClickListener { alClick() }
         val lp = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -141,12 +173,12 @@ class MainActivity : AppCompatActivity() {
         )
         texto("Elegí una categoría", 18f, 24)
         for (c in categorias) {
-            boton(c) {
+            boton(c, colorDe(c)) {
                 catElegida = c
                 mostrarDificultad()
             }
         }
-        boton("Mezcla (todas)") {
+        boton("Mezcla (todas)", colorDe("Mezcla")) {
             catElegida = "Mezcla"
             mostrarDificultad()
         }
@@ -154,15 +186,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarDificultad() {
         contenedor.removeAllViews()
-        texto(catElegida, 28f)
+        texto(catElegida, 28f).setTextColor(colorDe(catElegida))
         texto("Elegí la dificultad", 18f, 24)
         for (d in 1..3) {
-            boton("${nombresDif[d - 1]}  ·  vale $d  ·  récord ${record(d)}") {
+            boton("${nombresDif[d - 1]}  ·  vale $d  ·  récord ${record(d)}", colorDe(catElegida)) {
                 difElegida = d
                 empezar()
             }
         }
-        boton("Todas  ·  récord ${record(0)}") {
+        boton("Todas  ·  récord ${record(0)}", colorDe(catElegida)) {
             difElegida = 0
             empezar()
         }
@@ -184,6 +216,7 @@ class MainActivity : AppCompatActivity() {
         racha = 0
         cincuenta = 2
         saltos = 1
+        falladas.clear()
         mostrarPregunta()
     }
 
@@ -198,16 +231,17 @@ class MainActivity : AppCompatActivity() {
         contenedor.removeAllViews()
 
         texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
-        texto("${p.categoria} · ${nombresDif[p.dificultad - 1]} · ${indice + 1} de ${ronda.size}", 14f, 8)
+        texto(
+            "${p.categoria} · ${nombresDif[p.dificultad - 1]} · ${indice + 1} de ${ronda.size}",
+            14f, 8
+        ).setTextColor(colorDe(p.categoria))
         tiempoView = texto("Tiempo: $tiempoPorPregunta", 18f, 8)
         texto(p.texto, 24f, 32)
 
         val correctaTexto = p.opciones[p.correcta]
         val botones = ArrayList<Button>()
         for (op in p.opciones.shuffled()) {
-            val b = boton(op) { }
-            b.setBackgroundColor(Color.LTGRAY)
-            b.setTextColor(Color.BLACK)
+            val b = boton(op, Color.LTGRAY, Color.BLACK) { }
             b.setOnClickListener { responder(b, op == correctaTexto, p, botones, correctaTexto) }
             botones.add(b)
         }
@@ -269,15 +303,16 @@ class MainActivity : AppCompatActivity() {
             racha++
             val bonus = if (racha >= 3) 1 else 0
             puntos += p.dificultad + bonus
-            elegido?.setBackgroundColor(Color.GREEN)
+            elegido?.background = fondo(Color.GREEN)
         } else {
             racha = 0
             vidas--
-            elegido?.setBackgroundColor(Color.RED)
+            falladas.add(p)
+            elegido?.background = fondo(Color.RED)
             for (b in botones) {
                 if (b.text.toString() == correctaTexto) {
                     b.visibility = View.VISIBLE
-                    b.setBackgroundColor(Color.GREEN)
+                    b.background = fondo(Color.GREEN)
                 }
             }
         }
@@ -298,7 +333,16 @@ class MainActivity : AppCompatActivity() {
         texto(if (vidas <= 0) "Te quedaste sin vidas" else "¡Terminaste las preguntas!", 26f)
         texto("Puntos: $puntos", 22f, 24)
         texto(if (nuevo) "¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
-        boton("Jugar de nuevo") { empezar() }
+        boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
         boton("Elegir otra categoría") { mostrarCategorias() }
+
+        if (falladas.isNotEmpty()) {
+            texto("Para repasar", 22f, 40)
+            for (f in falladas) {
+                texto("✗ ${f.texto}", 16f, 24)
+                texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
+                    .setTextColor(Color.parseColor("#43A047"))
+            }
+        }
     }
 }
