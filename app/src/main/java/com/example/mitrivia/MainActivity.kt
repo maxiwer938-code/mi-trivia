@@ -1,18 +1,29 @@
 package com.example.mitrivia
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -47,6 +58,26 @@ class MainActivity : AppCompatActivity() {
         "Mezcla" to Color.parseColor("#455A64")
     )
 
+    private val emojis = mapOf(
+        "Videojuegos" to "🎮",
+        "Fútbol" to "⚽",
+        "Cine y series" to "🎬",
+        "Ciencia y naturaleza" to "🔬",
+        "Historia" to "🏛️",
+        "Geografía" to "🌎",
+        "Música" to "🎵",
+        "Mezcla" to "🎲"
+    )
+
+    private val frasesAcierto = listOf(
+        "¡Bien ahí!", "¡Crack!", "¡Excelente!", "¡Eso es!", "¡Así se hace!",
+        "¡Qué máquina!", "¡Bárbaro!", "¡Correcto!"
+    )
+    private val frasesError = listOf(
+        "Uy, casi...", "Pasó cerca", "La próxima sale", "Se aprende fallando",
+        "No pasa nada, seguimos", "Esa era difícil"
+    )
+
     private var todas: List<Pregunta> = emptyList()
     private var datos: Map<String, List<String>> = emptyMap()
     private var catElegida = "Mezcla"
@@ -70,6 +101,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scroll: ScrollView
     private lateinit var contenedor: LinearLayout
     private lateinit var tiempoView: TextView
+    private lateinit var barra: ProgressBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,11 +236,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun vibrar(ms: Long) {
+        if (!sonido) return
+        try {
+            val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                v.vibrate(ms)
+            }
+        } catch (e: Exception) {
+            // sin vibración el juego sigue igual
+        }
+    }
+
+    private fun dp(n: Int): Int = (n * resources.displayMetrics.density).toInt()
+
     private fun prefs() = getSharedPreferences("trivia", Context.MODE_PRIVATE)
 
     private fun record(dif: Int): Int = prefs().getInt("record_${catElegida}_$dif", 0)
 
     private fun colorDe(cat: String): Int = colores[cat] ?: Color.DKGRAY
+
+    private fun conEmoji(cat: String): String = (emojis[cat] ?: "") + "  " + cat
 
     private fun fondo(color: Int): GradientDrawable {
         val g = GradientDrawable()
@@ -247,10 +297,68 @@ class MainActivity : AppCompatActivity() {
         return b
     }
 
+    private fun agregarLogo(): Boolean {
+        try {
+            val bmp = BitmapFactory.decodeStream(assets.open("logo.png"))
+            val iv = ImageView(this)
+            iv.setImageBitmap(bmp)
+            iv.scaleType = ImageView.ScaleType.FIT_CENTER
+            val lp = LinearLayout.LayoutParams(dp(190), dp(190))
+            lp.gravity = Gravity.CENTER_HORIZONTAL
+            iv.layoutParams = lp
+            contenedor.addView(iv)
+            return true
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    private fun animarEntrada() {
+        for (i in 0 until contenedor.childCount) {
+            val v = contenedor.getChildAt(i)
+            v.alpha = 0f
+            v.translationY = 40f
+            v.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(260L)
+                .setStartDelay(minOf(i, 12) * 40L)
+                .start()
+        }
+    }
+
+    private fun rebote(v: View?) {
+        if (v == null) return
+        val a = ObjectAnimator.ofPropertyValuesHolder(
+            v,
+            PropertyValuesHolder.ofFloat("scaleX", 1f, 1.08f, 1f),
+            PropertyValuesHolder.ofFloat("scaleY", 1f, 1.08f, 1f)
+        )
+        a.duration = 350L
+        a.start()
+    }
+
+    private fun temblor() {
+        val a = ObjectAnimator.ofFloat(
+            contenedor, "translationX",
+            0f, -28f, 28f, -20f, 20f, -10f, 10f, 0f
+        )
+        a.duration = 420L
+        a.start()
+    }
+
+    private fun colorBarra(ms: Long): Int {
+        if (ms > 8000L) return Color.parseColor("#43A047")
+        if (ms > 5000L) return Color.parseColor("#FFB300")
+        return Color.parseColor("#E53935")
+    }
+
     private fun mostrarCategorias() {
         timer?.cancel()
         contenedor.removeAllViews()
-        texto("Mi Trivia", 30f)
+        if (!agregarLogo()) {
+            texto("Trivia Max", 30f)
+        }
         texto(
             "Tenés 3 vidas, $tiempoPorPregunta segundos por pregunta y comodines. " +
                 "Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.",
@@ -258,25 +366,26 @@ class MainActivity : AppCompatActivity() {
         )
         texto("Elegí una categoría", 18f, 24)
         for (c in categorias) {
-            boton(c, colorDe(c)) {
+            boton(conEmoji(c), colorDe(c)) {
                 catElegida = c
                 mostrarDificultad()
             }
         }
-        boton("Mezcla (todas)", colorDe("Mezcla")) {
+        boton(conEmoji("Mezcla") + " (todas)", colorDe("Mezcla")) {
             catElegida = "Mezcla"
             mostrarDificultad()
         }
-        boton("Sonido: " + (if (sonido) "SÍ" else "NO"), Color.DKGRAY) {
+        boton("Sonido y vibración: " + (if (sonido) "SÍ" else "NO"), Color.DKGRAY) {
             sonido = !sonido
             prefs().edit().putBoolean("sonido", sonido).apply()
             mostrarCategorias()
         }
+        animarEntrada()
     }
 
     private fun mostrarDificultad() {
         contenedor.removeAllViews()
-        texto(catElegida, 28f).setTextColor(colorDe(catElegida))
+        texto(conEmoji(catElegida), 28f).setTextColor(colorDe(catElegida))
         texto("Elegí la dificultad", 18f, 24)
         for (d in 1..3) {
             boton("${nombresDif[d - 1]}  ·  vale $d  ·  récord ${record(d)}", colorDe(catElegida)) {
@@ -289,6 +398,7 @@ class MainActivity : AppCompatActivity() {
             empezar()
         }
         boton("Volver") { mostrarCategorias() }
+        animarEntrada()
     }
 
     private fun empezar() {
@@ -320,14 +430,28 @@ class MainActivity : AppCompatActivity() {
         comodines.clear()
         val p = ronda[indice]
         contenedor.removeAllViews()
+        contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
 
         texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
         texto(
-            "${p.categoria} · ${nombresDif[p.dificultad - 1]} · ${indice + 1} de ${ronda.size}",
+            "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · ${indice + 1} de ${ronda.size}",
             14f, 8
         ).setTextColor(colorDe(p.categoria))
         tiempoView = texto("Tiempo: $tiempoPorPregunta", 18f, 8)
+
+        barra = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        barra.max = tiempoPorPregunta * 1000
+        barra.progress = tiempoPorPregunta * 1000
+        barra.progressTintList = ColorStateList.valueOf(colorBarra(tiempoPorPregunta * 1000L))
+        val lpBarra = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(10)
+        )
+        lpBarra.topMargin = 8
+        barra.layoutParams = lpBarra
+        contenedor.addView(barra)
+
         texto(p.texto, 24f, 32)
 
         val correctaTexto = p.opciones[p.correcta]
@@ -366,18 +490,27 @@ class MainActivity : AppCompatActivity() {
         comodines.add(b50)
         comodines.add(bSaltar)
 
+        animarEntrada()
         iniciarTimer(p, botones, correctaTexto)
     }
 
     private fun iniciarTimer(p: Pregunta, botones: List<Button>, correctaTexto: String) {
         timer?.cancel()
-        timer = object : CountDownTimer(tiempoPorPregunta * 1000L, 1000L) {
+        timer = object : CountDownTimer(tiempoPorPregunta * 1000L, 100L) {
             override fun onTick(ms: Long) {
                 tiempoView.text = "Tiempo: ${(ms + 999) / 1000}"
+                barra.progress = ms.toInt()
+                barra.progressTintList = ColorStateList.valueOf(colorBarra(ms))
+                if (ms < 5000L && (ms / 250L) % 2L == 1L) {
+                    barra.alpha = 0.45f
+                } else {
+                    barra.alpha = 1f
+                }
             }
 
             override fun onFinish() {
                 tiempoView.text = "Tiempo: 0"
+                barra.progress = 0
                 responder(null, false, p, botones, correctaTexto)
             }
         }
@@ -394,12 +527,22 @@ class MainActivity : AppCompatActivity() {
         if (respondida) return
         respondida = true
         timer?.cancel()
+        barra.alpha = 1f
+        val frase: String
         if (acierto) {
             racha++
             val bonus = if (racha >= 3) 1 else 0
-            puntos += p.dificultad + bonus
+            val ganados = p.dificultad + bonus
+            puntos += ganados
             elegido?.background = fondo(Color.GREEN)
+            frase = if (racha >= 3) {
+                "🔥 ¡Racha de $racha! +$ganados puntos"
+            } else {
+                frasesAcierto.random() + "  +$ganados"
+            }
+            rebote(elegido)
             sonar(sonidoOk)
+            vibrar(40L)
         } else {
             racha = 0
             vidas--
@@ -411,18 +554,29 @@ class MainActivity : AppCompatActivity() {
                     b.background = fondo(Color.GREEN)
                 }
             }
+            frase = if (elegido == null) {
+                "⏰ ¡Se acabó el tiempo!"
+            } else {
+                frasesError.random()
+            }
+            temblor()
             sonar(sonidoMal)
+            vibrar(220L)
         }
         for (v in comodines) {
             v.visibility = View.GONE
         }
-        mostrarDato(p)
+        mostrarDato(p, frase, acierto)
     }
 
-    private fun mostrarDato(p: Pregunta) {
+    private fun mostrarDato(p: Pregunta, frase: String, acierto: Boolean) {
+        val t = texto(frase, 22f, 24)
+        t.setTextColor(if (acierto) Color.parseColor("#66BB6A") else Color.parseColor("#EF5350"))
+        t.setTypeface(null, Typeface.BOLD)
+
         val dato = datos[p.categoria]?.random()
         if (dato != null) {
-            texto("¿Sabías que...?", 16f, 28).setTextColor(colorDe(p.categoria))
+            texto("¿Sabías que...?", 16f, 20).setTextColor(colorDe(p.categoria))
             texto(dato, 16f, 4)
         }
         boton("Siguiente", colorDe(p.categoria)) {
@@ -437,6 +591,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarFin() {
         contenedor.removeAllViews()
+        contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
         val clave = "record_${catElegida}_$difElegida"
         val anterior = prefs().getInt(clave, 0)
@@ -444,19 +599,4 @@ class MainActivity : AppCompatActivity() {
         if (nuevo) {
             prefs().edit().putInt(clave, puntos).apply()
         }
-        texto(if (vidas <= 0) "Te quedaste sin vidas" else "¡Terminaste las preguntas!", 26f)
-        texto("Puntos: $puntos", 22f, 24)
-        texto(if (nuevo) "¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
-        boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
-        boton("Elegir otra categoría") { mostrarCategorias() }
-
-        if (falladas.isNotEmpty()) {
-            texto("Para repasar", 22f, 40)
-            for (f in falladas) {
-                texto("✗ ${f.texto}", 16f, 24)
-                texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
-                    .setTextColor(Color.parseColor("#43A047"))
-            }
-        }
-    }
-}
+  
