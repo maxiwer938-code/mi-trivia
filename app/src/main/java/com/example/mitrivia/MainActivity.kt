@@ -599,4 +599,20 @@ class MainActivity : AppCompatActivity() {
         if (nuevo) {
             prefs().edit().putInt(clave, puntos).apply()
         }
-  
+        texto(if (vidas <= 0) "Te quedaste sin vidas" else "¡Terminaste las preguntas!", 26f)
+        texto("Puntos: $puntos", 22f, 24)
+        texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
+        boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
+        boton("Elegir otra categoría") { mostrarCategorias() }
+
+        if (falladas.isNotEmpty()) {
+            texto("Para repasar", 22f, 40)
+            for (f in falladas) {
+                texto("✗ ${f.texto}", 16f, 24)
+                texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
+                    .setTextColor(Color.parseColor("#43A047"))
+            }
+        }
+        animarEntrada()
+    }
+}
