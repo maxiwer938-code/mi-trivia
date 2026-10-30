@@ -15,6 +15,27 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            val ruta = System.getenv("KEYSTORE_PATH")
+            if (ruta != null) {
+                storeFile = file(ruta)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = "trivia"
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
