@@ -569,6 +569,7 @@ class MainActivity : AppCompatActivity() {
         if (!agregarLogo()) {
             texto("Trivia Max", 30f)
         }
+        boton("🎮 Jugar", Color.parseColor("#1E88E5")) { mostrarJugar() }
         val etiquetaDia = if (yaRespondioHoy()) "📅 Pregunta del día ✓" else "📅 Pregunta del día"
         boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
             mostrarDelDia()
@@ -576,6 +577,19 @@ class MainActivity : AppCompatActivity() {
         boton("♾️ Supervivencia  ·  récord ${prefs().getInt("record_super", 0)}", Color.parseColor("#D84315")) {
             empezarSuper()
         }
+        boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
+            mostrarLogros()
+        }
+        boton("⚙️ Configuración", Color.DKGRAY) { mostrarConfig() }
+        animarEntrada()
+    }
+
+    private fun mostrarJugar() {
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("🎮 Jugar", 28f)
         texto(
             "Tenés 3 vidas, $tiempoPorPregunta segundos por pregunta y comodines. " +
                 "Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.",
@@ -594,14 +608,56 @@ class MainActivity : AppCompatActivity() {
             catElegida = "Mezcla"
             mostrarDificultad()
         }
-        boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
-            mostrarLogros()
-        }
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
+    private fun mostrarConfig() {
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("⚙️ Configuración", 28f)
         boton("Sonido y vibración: " + (if (sonido) "SÍ" else "NO"), Color.DKGRAY) {
             sonido = !sonido
             prefs().edit().putBoolean("sonido", sonido).apply()
-            mostrarCategorias()
+            mostrarConfig()
         }
+
+        texto("Cómo se juega", 18f, 28)
+        texto(
+            "• Tenés 3 vidas y $tiempoPorPregunta segundos por pregunta.\n" +
+                "• Cada acierto suma puntos según la dificultad.\n" +
+                "• Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.\n" +
+                "• Comodines: 50/50 (2 por partida) y saltar pregunta (1).\n" +
+                "• Pregunta del día: una por día, y cuenta tu racha de días.\n" +
+                "• Supervivencia: preguntas cada vez más difíciles hasta quedarte sin vidas.",
+            14f, 8
+        )
+
+        var version = ""
+        try {
+            version = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: Exception) {
+            // si no se puede leer, no se muestra
+        }
+        if (version.isNotEmpty()) {
+            texto("Versión $version", 13f, 20)
+        }
+
+        var seguro = false
+        val bBorrar = boton("🗑️ Borrar récords, logros y racha", Color.parseColor("#B71C1C")) { }
+        bBorrar.setOnClickListener {
+            if (!seguro) {
+                seguro = true
+                bBorrar.text = "¿Seguro? Tocá de nuevo para borrar todo"
+            } else {
+                prefs().edit().clear().putBoolean("sonido", sonido).apply()
+                Toast.makeText(this, "Listo, todo borrado", Toast.LENGTH_SHORT).show()
+                mostrarConfig()
+            }
+        }
+        boton("Volver") { mostrarCategorias() }
         animarEntrada()
     }
 
@@ -620,7 +676,7 @@ class MainActivity : AppCompatActivity() {
             difElegida = 0
             empezar()
         }
-        boton("Volver") { mostrarCategorias() }
+        boton("Volver") { mostrarJugar() }
         animarEntrada()
     }
 
@@ -837,7 +893,7 @@ class MainActivity : AppCompatActivity() {
             val modoTxt = if (modoSuper) "Supervivencia" else catElegida
             compartirTexto("Hice $puntos puntos en Trivia Max ($modoTxt) 🔥 ¿Me ganás? ¡A jugar y ganar!")
         }
-        boton("Elegir otra categoría") { mostrarCategorias() }
+        boton("Elegir otra categoría") { mostrarJugar() }
 
         if (falladas.isNotEmpty()) {
             texto("Para repasar", 22f, 40)
