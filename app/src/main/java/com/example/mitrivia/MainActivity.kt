@@ -3,6 +3,7 @@ package com.example.mitrivia
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -27,6 +28,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import java.util.TimeZone
 import org.json.JSONArray
 
 data class Pregunta(
@@ -41,7 +43,7 @@ class MainActivity : AppCompatActivity() {
 
     private val categorias = listOf(
         "Videojuegos", "Fútbol", "Cine y series", "Ciencia y naturaleza",
-        "Historia", "Geografía", "Música"
+        "Historia", "Geografía", "Música", "Cultura argentina"
     )
     private val nombresDif = listOf("Fácil", "Medio", "Difícil")
     private val tiempoPorPregunta = 15
@@ -55,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         "Historia" to Color.parseColor("#E65100"),
         "Geografía" to Color.parseColor("#00796B"),
         "Música" to Color.parseColor("#AD1457"),
+        "Cultura argentina" to Color.parseColor("#0288D1"),
         "Mezcla" to Color.parseColor("#455A64")
     )
 
@@ -66,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         "Historia" to "🏛️",
         "Geografía" to "🌎",
         "Música" to "🎵",
+        "Cultura argentina" to "🧉",
         "Mezcla" to "🎲"
     )
 
@@ -105,6 +109,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
         todas = cargarPreguntas()
         datos = cargarDatos()
         sonido = prefs().getBoolean("sonido", true)
@@ -167,22 +172,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun cargarDatos(): Map<String, List<String>> {
         val mapa = HashMap<String, MutableList<String>>()
-        try {
-            val json = assets.open("datos_curiosos.json").bufferedReader().use { it.readText() }
-            val arr = JSONArray(json)
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val cat = o.getString("categoria")
-                if (!mapa.containsKey(cat)) {
-                    mapa[cat] = ArrayList()
+        val archivos: Array<String> = assets.list("") ?: emptyArray()
+        for (nombre in archivos) {
+            if (nombre.startsWith("datos") && nombre.endsWith(".json")) {
+                try {
+                    val json = assets.open(nombre).bufferedReader().use { it.readText() }
+                    val arr = JSONArray(json)
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        val cat = o.getString("categoria")
+                        if (!mapa.containsKey(cat)) {
+                            mapa[cat] = ArrayList()
+                        }
+                        mapa[cat]!!.add(o.getString("dato"))
+                    }
+                } catch (e: Exception) {
+                    // si un archivo de datos está mal armado, se saltea
                 }
-                mapa[cat]!!.add(o.getString("dato"))
             }
-        } catch (e: Exception) {
-            // sin datos curiosos el juego anda igual
         }
         return mapa
     }
+
+    private fun datoDe(cat: String): String? = datos[cat]?.random()
 
     private fun generarTono(notas: List<Int>, msPorNota: Int, volumen: Double, cuadrada: Boolean): ShortArray {
         val porNota = tasa * msPorNota / 1000
@@ -353,11 +365,129 @@ class MainActivity : AppCompatActivity() {
         return Color.parseColor("#E53935")
     }
 
+    private fun compartirTexto(mensaje: String) {
+        try {
+            val i = Intent(Intent.ACTION_SEND)
+            i.type = "text/plain"
+            i.putExtra(Intent.EXTRA_TEXT, mensaje)
+            startActivity(Intent.createChooser(i, "Compartir con"))
+        } catch (e: Exception) {
+            // si no hay con qué compartir, no pasa nada
+        }
+    }
+
+    private fun diaHoy(): Int {
+        val ahora = System.currentTimeMillis()
+        return ((ahora + TimeZone.getDefault().getOffset(ahora)) / 86400000L).toInt()
+    }
+
+    private fun yaRespondioHoy(): Boolean = prefs().getInt("dia_ultimo", -1) == diaHoy()
+
+    private fun rachaDias(): Int {
+        val ultimo = prefs().getInt("dia_ultimo", -1)
+        val hoy = diaHoy()
+        if (ultimo == hoy || ultimo == hoy - 1) {
+            return prefs().getInt("dia_racha", 0)
+        }
+        return 0
+    }
+
+    private fun registrarDia() {
+        val hoy = diaHoy()
+        val ultimo = prefs().getInt("dia_ultimo", -1)
+        val nueva = if (ultimo == hoy - 1) prefs().getInt("dia_racha", 0) + 1 else 1
+        prefs().edit().putInt("dia_ultimo", hoy).putInt("dia_racha", nueva).apply()
+    }
+
+    private fun mostrarDelDia() {
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("📅 Pregunta del día", 26f)
+        texto("Racha: ${rachaDias()} días seguidos", 16f, 8).setTextColor(Color.parseColor("#FFB300"))
+
+        if (todas.isEmpty()) {
+            boton("Volver") { mostrarCategorias() }
+            animarEntrada()
+            return
+        }
+        if (yaRespondioHoy()) {
+            texto("Ya respondiste la de hoy. ¡Volvé mañana por la próxima!", 18f, 24)
+            boton("📤 Compartir mi racha", Color.parseColor("#2E7D32")) {
+                compartirTexto("Llevo ${rachaDias()} días seguidos en la pregunta del día de Trivia Max 🔥 ¿Me alcanzás?")
+            }
+            boton("Volver") { mostrarCategorias() }
+            animarEntrada()
+            return
+        }
+
+        val ordenadas = todas.sortedBy { it.texto }
+        val p = ordenadas[diaHoy() % ordenadas.size]
+        texto("${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]}", 14f, 16)
+            .setTextColor(colorDe(p.categoria))
+        texto(p.texto, 24f, 24)
+
+        val correctaTexto = p.opciones[p.correcta]
+        var contestada = false
+        var volver: Button? = null
+        val botones = ArrayList<Button>()
+        for (op in p.opciones.shuffled()) {
+            val b = boton(op, Color.LTGRAY, Color.BLACK) { }
+            b.setOnClickListener {
+                if (contestada) return@setOnClickListener
+                contestada = true
+                val acierto = op == correctaTexto
+                registrarDia()
+                if (acierto) {
+                    b.background = fondo(Color.GREEN)
+                    rebote(b)
+                    sonar(sonidoOk)
+                    vibrar(40L)
+                } else {
+                    b.background = fondo(Color.RED)
+                    for (x in botones) {
+                        if (x.text.toString() == correctaTexto) {
+                            x.background = fondo(Color.GREEN)
+                        }
+                    }
+                    temblor()
+                    sonar(sonidoMal)
+                    vibrar(220L)
+                }
+                volver?.let { contenedor.removeView(it) }
+                val t = texto(if (acierto) frasesAcierto.random() else frasesError.random(), 22f, 24)
+                t.setTextColor(if (acierto) Color.parseColor("#66BB6A") else Color.parseColor("#EF5350"))
+                t.setTypeface(null, Typeface.BOLD)
+                texto("🔥 Racha: ${rachaDias()} días seguidos", 18f, 8)
+                val dato = datoDe(p.categoria)
+                if (dato != null) {
+                    texto("¿Sabías que...?", 16f, 20).setTextColor(colorDe(p.categoria))
+                    texto(dato, 16f, 4)
+                }
+                boton("📤 Compartir mi racha", Color.parseColor("#2E7D32")) {
+                    compartirTexto("Llevo ${rachaDias()} días seguidos en la pregunta del día de Trivia Max 🔥 ¿Me alcanzás?")
+                }
+                boton("Volver al menú") { mostrarCategorias() }
+                scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+            }
+            botones.add(b)
+        }
+        volver = boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
     private fun mostrarCategorias() {
         timer?.cancel()
         contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
         if (!agregarLogo()) {
             texto("Trivia Max", 30f)
+        }
+        val etiquetaDia = if (yaRespondioHoy()) "📅 Pregunta del día ✓" else "📅 Pregunta del día"
+        boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
+            mostrarDelDia()
         }
         texto(
             "Tenés 3 vidas, $tiempoPorPregunta segundos por pregunta y comodines. " +
@@ -385,6 +515,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarDificultad() {
         contenedor.removeAllViews()
+        scroll.scrollTo(0, 0)
         texto(conEmoji(catElegida), 28f).setTextColor(colorDe(catElegida))
         texto("Elegí la dificultad", 18f, 24)
         for (d in 1..3) {
@@ -574,7 +705,7 @@ class MainActivity : AppCompatActivity() {
         t.setTextColor(if (acierto) Color.parseColor("#66BB6A") else Color.parseColor("#EF5350"))
         t.setTypeface(null, Typeface.BOLD)
 
-        val dato = datos[p.categoria]?.random()
+        val dato = datoDe(p.categoria)
         if (dato != null) {
             texto("¿Sabías que...?", 16f, 20).setTextColor(colorDe(p.categoria))
             texto(dato, 16f, 4)
@@ -603,6 +734,9 @@ class MainActivity : AppCompatActivity() {
         texto("Puntos: $puntos", 22f, 24)
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
         boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
+        boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
+            compartirTexto("Hice $puntos puntos en Trivia Max ($catElegida) 🔥 ¿Me ganás? ¡A jugar y ganar!")
+        }
         boton("Elegir otra categoría") { mostrarCategorias() }
 
         if (falladas.isNotEmpty()) {
