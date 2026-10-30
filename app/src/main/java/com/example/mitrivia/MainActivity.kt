@@ -28,6 +28,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import java.util.TimeZone
 import org.json.JSONArray
@@ -111,6 +112,8 @@ class MainActivity : AppCompatActivity() {
     private var cincuenta = 2
     private var saltos = 1
     private var respondida = false
+    private var pantalla = "inicio"
+    private var ultimoAtras = 0L
     private var modoSuper = false
     private var aciertosPartida = 0
     private var sonido = true
@@ -143,7 +146,33 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(contenedor)
         setContentView(scroll)
 
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                atras()
+            }
+        })
+
         mostrarCategorias()
+    }
+
+    private fun atras() {
+        when (pantalla) {
+            "inicio" -> confirmarSalida("Tocá otra vez para salir") { finish() }
+            "pregunta" -> confirmarSalida("Tocá otra vez para dejar la partida") { mostrarCategorias() }
+            "dificultad", "fin" -> if (modoSuper) mostrarCategorias() else mostrarJugar()
+            else -> mostrarCategorias()
+        }
+    }
+
+    private fun confirmarSalida(aviso: String, accion: () -> Unit) {
+        val ahora = System.currentTimeMillis()
+        if (ahora - ultimoAtras < 2000L) {
+            ultimoAtras = 0L
+            accion()
+        } else {
+            ultimoAtras = ahora
+            Toast.makeText(this, aviso, Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onDestroy() {
@@ -421,6 +450,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarDelDia() {
+        pantalla = "dia"
         timer?.cancel()
         contenedor.removeAllViews()
         contenedor.translationX = 0f
@@ -538,6 +568,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarLogros() {
+        pantalla = "logros"
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
@@ -562,6 +593,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarCategorias() {
+        pantalla = "inicio"
         timer?.cancel()
         contenedor.removeAllViews()
         contenedor.translationX = 0f
@@ -585,6 +617,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarJugar() {
+        pantalla = "jugar"
         timer?.cancel()
         contenedor.removeAllViews()
         contenedor.translationX = 0f
@@ -613,6 +646,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarConfig() {
+        pantalla = "config"
         timer?.cancel()
         contenedor.removeAllViews()
         contenedor.translationX = 0f
@@ -662,6 +696,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarDificultad() {
+        pantalla = "dificultad"
         contenedor.removeAllViews()
         scroll.scrollTo(0, 0)
         texto(conEmoji(catElegida), 28f).setTextColor(colorDe(catElegida))
@@ -706,6 +741,7 @@ class MainActivity : AppCompatActivity() {
             mostrarFin()
             return
         }
+        pantalla = "pregunta"
         respondida = false
         comodines.clear()
         val p = ronda[indice]
@@ -872,6 +908,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarFin() {
+        pantalla = "fin"
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
