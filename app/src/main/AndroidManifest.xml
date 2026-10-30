@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Mi Trivia"
         android:theme="@style/Theme.AppCompat.DayNight.DarkActionBar">
         <activity
