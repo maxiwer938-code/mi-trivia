@@ -27,6 +27,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.util.TimeZone
 import org.json.JSONArray
@@ -38,6 +39,8 @@ data class Pregunta(
     val opciones: List<String>,
     val correcta: Int
 )
+
+private class Logro(val id: String, val emoji: String, val nombre: String, val desc: String)
 
 class MainActivity : AppCompatActivity() {
 
@@ -73,6 +76,20 @@ class MainActivity : AppCompatActivity() {
         "Mezcla" to "🎲"
     )
 
+    private val logros: List<Logro> = listOf(
+        Logro("primera", "🎉", "Primera partida", "Terminá tu primera partida"),
+        Logro("racha5", "🔥", "En llamas", "Conseguí 5 aciertos seguidos"),
+        Logro("racha10", "🌋", "Imparable", "Conseguí 10 aciertos seguidos"),
+        Logro("perfecta", "💎", "Partida perfecta", "Terminá una partida de 10 preguntas o más sin fallar ninguna"),
+        Logro("todoterreno", "🧭", "Todoterreno", "Jugá una partida de cada categoría"),
+        Logro("cien", "💯", "Cien aciertos", "Acertá 100 preguntas en total"),
+        Logro("super15", "♾️", "Sobreviviente", "Acertá 15 preguntas en una partida de Supervivencia"),
+        Logro("dia3", "📅", "Constante", "3 días seguidos con la pregunta del día"),
+        Logro("dia7", "🗓️", "Hábito", "7 días seguidos con la pregunta del día")
+    ) + categorias.map {
+        Logro("exp_$it", emojis[it] ?: "⭐", "Experto en $it", "Acertá 25 preguntas de $it")
+    }
+
     private val frasesAcierto = listOf(
         "¡Bien ahí!", "¡Crack!", "¡Excelente!", "¡Eso es!", "¡Así se hace!",
         "¡Qué máquina!", "¡Bárbaro!", "¡Correcto!"
@@ -94,6 +111,8 @@ class MainActivity : AppCompatActivity() {
     private var cincuenta = 2
     private var saltos = 1
     private var respondida = false
+    private var modoSuper = false
+    private var aciertosPartida = 0
     private var sonido = true
     private var sonidoOk: ShortArray = ShortArray(0)
     private var sonidoMal: ShortArray = ShortArray(0)
@@ -397,6 +416,8 @@ class MainActivity : AppCompatActivity() {
         val ultimo = prefs().getInt("dia_ultimo", -1)
         val nueva = if (ultimo == hoy - 1) prefs().getInt("dia_racha", 0) + 1 else 1
         prefs().edit().putInt("dia_ultimo", hoy).putInt("dia_racha", nueva).apply()
+        if (nueva >= 3) desbloquear("dia3")
+        if (nueva >= 7) desbloquear("dia7")
     }
 
     private fun mostrarDelDia() {
@@ -477,6 +498,69 @@ class MainActivity : AppCompatActivity() {
         animarEntrada()
     }
 
+    private fun tiene(id: String): Boolean = prefs().getBoolean("logro_$id", false)
+
+    private fun desbloquear(id: String) {
+        if (tiene(id)) return
+        prefs().edit().putBoolean("logro_$id", true).apply()
+        val l = logros.firstOrNull { it.id == id } ?: return
+        Toast.makeText(this, "🏅 Logro: ${l.nombre}", Toast.LENGTH_LONG).show()
+    }
+
+    private fun sumar(clave: String): Int {
+        val v = prefs().getInt(clave, 0) + 1
+        prefs().edit().putInt(clave, v).apply()
+        return v
+    }
+
+    private fun registrarAcierto(p: Pregunta) {
+        aciertosPartida++
+        if (sumar("aciertos_total") >= 100) desbloquear("cien")
+        if (sumar("ac_${p.categoria}") >= 25) desbloquear("exp_${p.categoria}")
+        if (racha >= 5) desbloquear("racha5")
+        if (racha >= 10) desbloquear("racha10")
+        if (modoSuper && aciertosPartida >= 15) desbloquear("super15")
+    }
+
+    private fun logrosFinPartida() {
+        desbloquear("primera")
+        if (!modoSuper) {
+            if (catElegida != "Mezcla") {
+                prefs().edit().putBoolean("jugada_$catElegida", true).apply()
+                if (categorias.all { prefs().getBoolean("jugada_$it", false) }) {
+                    desbloquear("todoterreno")
+                }
+            }
+            if (vidas == 3 && falladas.isEmpty() && ronda.size >= 10) {
+                desbloquear("perfecta")
+            }
+        }
+    }
+
+    private fun mostrarLogros() {
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        val n = logros.count { tiene(it.id) }
+        texto("🏅 Logros", 28f)
+        texto("$n de ${logros.size} desbloqueados", 16f, 8).setTextColor(Color.parseColor("#FFB300"))
+        for (l in logros) {
+            val ok = tiene(l.id)
+            val t = texto((if (ok) "✅ " else "🔒 ") + l.emoji + "  " + l.nombre, 18f, 20)
+            t.setTextColor(if (ok) Color.parseColor("#66BB6A") else Color.GRAY)
+            texto(l.desc, 14f, 2)
+        }
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
+    private fun empezarSuper() {
+        modoSuper = true
+        catElegida = "Mezcla"
+        difElegida = 0
+        empezar()
+    }
+
     private fun mostrarCategorias() {
         timer?.cancel()
         contenedor.removeAllViews()
@@ -489,6 +573,9 @@ class MainActivity : AppCompatActivity() {
         boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
             mostrarDelDia()
         }
+        boton("♾️ Supervivencia  ·  récord ${prefs().getInt("record_super", 0)}", Color.parseColor("#D84315")) {
+            empezarSuper()
+        }
         texto(
             "Tenés 3 vidas, $tiempoPorPregunta segundos por pregunta y comodines. " +
                 "Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.",
@@ -497,13 +584,18 @@ class MainActivity : AppCompatActivity() {
         texto("Elegí una categoría", 18f, 24)
         for (c in categorias) {
             boton(conEmoji(c), colorDe(c)) {
+                modoSuper = false
                 catElegida = c
                 mostrarDificultad()
             }
         }
         boton(conEmoji("Mezcla") + " (todas)", colorDe("Mezcla")) {
+            modoSuper = false
             catElegida = "Mezcla"
             mostrarDificultad()
+        }
+        boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
+            mostrarLogros()
         }
         boton("Sonido y vibración: " + (if (sonido) "SÍ" else "NO"), Color.DKGRAY) {
             sonido = !sonido
@@ -540,11 +632,12 @@ class MainActivity : AppCompatActivity() {
         if (difElegida != 0) {
             f = f.filter { it.dificultad == difElegida }
         }
-        ronda = f.shuffled()
+        ronda = if (modoSuper) todas.shuffled().sortedBy { it.dificultad } else f.shuffled()
         indice = 0
         puntos = 0
         vidas = 3
         racha = 0
+        aciertosPartida = 0
         cincuenta = 2
         saltos = 1
         falladas.clear()
@@ -565,8 +658,9 @@ class MainActivity : AppCompatActivity() {
         scroll.scrollTo(0, 0)
 
         texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
+        val progreso = if (modoSuper) "Pregunta ${indice + 1}" else "${indice + 1} de ${ronda.size}"
         texto(
-            "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · ${indice + 1} de ${ronda.size}",
+            "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · $progreso",
             14f, 8
         ).setTextColor(colorDe(p.categoria))
         tiempoView = texto("Tiempo: $tiempoPorPregunta", 18f, 8)
@@ -665,6 +759,7 @@ class MainActivity : AppCompatActivity() {
             val bonus = if (racha >= 3) 1 else 0
             val ganados = p.dificultad + bonus
             puntos += ganados
+            registrarAcierto(p)
             elegido?.background = fondo(Color.GREEN)
             frase = if (racha >= 3) {
                 "🔥 ¡Racha de $racha! +$ganados puntos"
@@ -724,18 +819,23 @@ class MainActivity : AppCompatActivity() {
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
-        val clave = "record_${catElegida}_$difElegida"
+        val clave = if (modoSuper) "record_super" else "record_${catElegida}_$difElegida"
         val anterior = prefs().getInt(clave, 0)
         val nuevo = puntos > anterior
         if (nuevo) {
             prefs().edit().putInt(clave, puntos).apply()
         }
+        logrosFinPartida()
         texto(if (vidas <= 0) "Te quedaste sin vidas" else "¡Terminaste las preguntas!", 26f)
         texto("Puntos: $puntos", 22f, 24)
+        if (modoSuper) {
+            texto("Aciertos: $aciertosPartida", 18f, 8)
+        }
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
         boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
         boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
-            compartirTexto("Hice $puntos puntos en Trivia Max ($catElegida) 🔥 ¿Me ganás? ¡A jugar y ganar!")
+            val modoTxt = if (modoSuper) "Supervivencia" else catElegida
+            compartirTexto("Hice $puntos puntos en Trivia Max ($modoTxt) 🔥 ¿Me ganás? ¡A jugar y ganar!")
         }
         boton("Elegir otra categoría") { mostrarCategorias() }
 
