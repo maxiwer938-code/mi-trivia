@@ -43,6 +43,10 @@ data class Pregunta(
     val correcta: Int
 )
 
+private class Mision(val id: String, val desc: String, val meta: Int, val premio: Int)
+
+private class Tema(val id: String, val nombre: String, val precio: Int, val fondo: Int)
+
 private class Logro(val id: String, val emoji: String, val nombre: String, val desc: String)
 
 class MainActivity : AppCompatActivity() {
@@ -78,6 +82,14 @@ class MainActivity : AppCompatActivity() {
         "Música" to "🎵",
         "Cultura argentina" to "🧉",
         "Mezcla" to "🎲"
+    )
+
+    private val temas: List<Tema> = listOf(
+        Tema("clasico", "Clásico", 0, 0),
+        Tema("medianoche", "🌙 Medianoche", 60, Color.parseColor("#0D1B2A")),
+        Tema("bosque", "🌲 Bosque", 60, Color.parseColor("#0F2A1D")),
+        Tema("atardecer", "🌇 Atardecer", 80, Color.parseColor("#2B1B3D")),
+        Tema("dorado", "🏆 Dorado", 120, Color.parseColor("#2A2108"))
     )
 
     private val logros: List<Logro> = listOf(
@@ -118,6 +130,8 @@ class MainActivity : AppCompatActivity() {
     private var respondida = false
     private var pantalla = "inicio"
     private var ultimoAtras = 0L
+    private var modoRepaso = false
+    private var statusOriginal = 0
     private var modoContra = false
     private var timerContra: CountDownTimer? = null
     private var restanteContra = 0L
@@ -163,6 +177,8 @@ class MainActivity : AppCompatActivity() {
         scroll = ScrollView(this)
         scroll.addView(contenedor)
         setContentView(scroll)
+        statusOriginal = window.statusBarColor
+        aplicarTema()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -419,6 +435,9 @@ class MainActivity : AppCompatActivity() {
         t.text = s
         t.textSize = size
         t.setPadding(0, margenArriba, 0, 0)
+        if (temaActivo().fondo != 0) {
+            t.setTextColor(Color.parseColor("#ECEFF1"))
+        }
         contenedor.addView(t)
         return t
     }
@@ -577,6 +596,7 @@ class MainActivity : AppCompatActivity() {
                 contestada = true
                 val acierto = op == correctaTexto
                 registrarDia()
+                progresoMision("dia")
                 if (acierto) {
                     b.background = fondo(Color.GREEN)
                     rebote(b)
@@ -585,6 +605,7 @@ class MainActivity : AppCompatActivity() {
                     vibrar(40L)
                 } else {
                     b.background = fondo(Color.RED)
+                    marcarFallada(p)
                     for (x in botones) {
                         if (x.text.toString() == correctaTexto) {
                             x.background = fondo(Color.GREEN)
@@ -639,6 +660,10 @@ class MainActivity : AppCompatActivity() {
         if (racha >= 10) desbloquear("racha10")
         if (modoSuper && aciertosPartida >= 15) desbloquear("super15")
         if (modoContra && aciertosPartida >= 15) desbloquear("contra15")
+        progresoMision("aciertos10")
+        progresoMision("aciertos25")
+        if (p.categoria == categoriaDelDia()) progresoMision("cat")
+        if (racha >= 5) progresoMision("racha5")
     }
 
     private fun logrosFinPartida() {
@@ -698,6 +723,7 @@ class MainActivity : AppCompatActivity() {
         boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
             mostrarDelDia()
         }
+        boton("🎯 Misiones  (${misionesCompletas()}/3)", Color.parseColor("#C2185B")) { mostrarMisiones() }
         boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
             mostrarLogros()
         }
@@ -768,6 +794,35 @@ class MainActivity : AppCompatActivity() {
         articulo("inv_5050", "🎯 50/50 extra", 15, "Elimina dos opciones incorrectas.")
         articulo("inv_tiempo", "⏱️ +10 segundos", 20, "Suma 10 segundos a la pregunta actual.")
         articulo("inv_vida", "❤️ Vida extra", 40, "Te da una vida más (máximo 5).")
+        texto("🎨 Temas de color", 22f, 32)
+        texto("Cambian el fondo de toda la app. Se compran una sola vez.", 13f, 4)
+        for (t in temas) {
+            val tengo = t.precio == 0 || prefs().getBoolean("tema_${t.id}", false)
+            val activo = prefs().getString("tema_activo", "clasico") == t.id
+            if (activo) {
+                boton("✓ ${t.nombre}  (en uso)", Color.parseColor("#2E7D32")) { }
+            } else if (tengo) {
+                boton("Usar ${t.nombre}", Color.parseColor("#546E7A")) {
+                    prefs().edit().putString("tema_activo", t.id).apply()
+                    aplicarTema()
+                    mostrarTienda()
+                }
+            } else {
+                boton("Comprar ${t.nombre}  ·  ${t.precio} 🪙", Color.parseColor("#00897B")) {
+                    if (monedas() < t.precio) {
+                        Toast.makeText(this, "Te faltan monedas", Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs().edit()
+                            .putInt("monedas", monedas() - t.precio)
+                            .putBoolean("tema_${t.id}", true)
+                            .putString("tema_activo", t.id)
+                            .apply()
+                        aplicarTema()
+                        mostrarTienda()
+                    }
+                }
+            }
+        }
         boton("Volver") { mostrarCategorias() }
         animarEntrada()
     }
@@ -808,6 +863,8 @@ class MainActivity : AppCompatActivity() {
             empezarContra()
         }
         texto("60 segundos para acertar todas las que puedas. Cada error te resta 3 segundos.", 13f, 6)
+        boton("📖 Repaso  ·  ${idsFalladas().size} pendientes", Color.parseColor("#5E35B1")) { empezarRepaso() }
+        texto("Practicá solo las preguntas que fallaste, sin perder vidas.", 13f, 6)
         boton("Volver") { mostrarCategorias() }
         animarEntrada()
     }
@@ -895,6 +952,7 @@ class MainActivity : AppCompatActivity() {
                 bBorrar.text = "¿Seguro? Tocá de nuevo para borrar todo"
             } else {
                 prefs().edit().clear().putBoolean("sonido", sonido).putBoolean("musica", musica).apply()
+                aplicarTema()
                 Toast.makeText(this, "Listo, todo borrado", Toast.LENGTH_SHORT).show()
                 mostrarConfig()
             }
@@ -937,6 +995,7 @@ class MainActivity : AppCompatActivity() {
         vidas = 3
         racha = 0
         aciertosPartida = 0
+        modoRepaso = false
         modoContra = false
         partidaXp = 0
         partidaMonedas = 0
@@ -960,7 +1019,7 @@ class MainActivity : AppCompatActivity() {
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
 
-        vidasView = texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
+        vidasView = texto(textoCabecera(), 18f)
         val progreso = if (modoSuper) "Pregunta ${indice + 1}" else "${indice + 1} de ${ronda.size}"
         texto(
             "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · $progreso",
@@ -1060,7 +1119,7 @@ class MainActivity : AppCompatActivity() {
                 prefs().edit().putInt("inv_vida", quedan - 1).apply()
                 vidas++
                 bVida.text = "❤️ Vida extra  (tenés ${quedan - 1})"
-                vidasView.text = "Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha"
+                vidasView.text = textoCabecera()
             }
             comodines.add(bVida)
         }
@@ -1121,6 +1180,9 @@ class MainActivity : AppCompatActivity() {
             puntos += ganados
             registrarAcierto(p)
             darRecompensa(ganados)
+            if (modoRepaso) {
+                marcarAprendida(p)
+            }
             elegido?.background = fondo(Color.GREEN)
             frase = if (racha >= 3) {
                 "🔥 ¡Racha de $racha! +$ganados puntos"
@@ -1132,8 +1194,11 @@ class MainActivity : AppCompatActivity() {
             vibrar(40L)
         } else {
             racha = 0
-            vidas--
+            if (!modoRepaso) {
+                vidas--
+            }
             falladas.add(p)
+            marcarFallada(p)
             elegido?.background = fondo(Color.RED)
             for (b in botones) {
                 if (b.text.toString() == correctaTexto) {
@@ -1176,6 +1241,165 @@ class MainActivity : AppCompatActivity() {
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
+    private fun temaActivo(): Tema {
+        val id = prefs().getString("tema_activo", "clasico")
+        return temas.firstOrNull { it.id == id } ?: temas[0]
+    }
+
+    private fun aplicarTema() {
+        val t = temaActivo()
+        if (t.fondo == 0) {
+            scroll.setBackgroundColor(Color.TRANSPARENT)
+            window.statusBarColor = statusOriginal
+        } else {
+            scroll.setBackgroundColor(t.fondo)
+            window.statusBarColor = t.fondo
+        }
+    }
+
+    private fun textoCabecera(): String {
+        if (modoRepaso) {
+            return "📖 Repaso   Aciertos: $aciertosPartida   Pendientes: ${idsFalladas().size}"
+        }
+        return "Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha"
+    }
+
+    private fun idDe(p: Pregunta): String = p.texto.hashCode().toString()
+
+    private fun idsFalladas(): Set<String> {
+        val guardado = prefs().getStringSet("falladas_ids", null) ?: return emptySet()
+        return HashSet(guardado)
+    }
+
+    private fun marcarFallada(p: Pregunta) {
+        val nuevo = HashSet(idsFalladas())
+        nuevo.add(idDe(p))
+        prefs().edit().putStringSet("falladas_ids", nuevo).apply()
+    }
+
+    private fun marcarAprendida(p: Pregunta) {
+        val nuevo = HashSet(idsFalladas())
+        nuevo.remove(idDe(p))
+        prefs().edit().putStringSet("falladas_ids", nuevo).apply()
+    }
+
+    private fun empezarRepaso() {
+        val ids = idsFalladas()
+        val lista = todas.filter { ids.contains(idDe(it)) }
+        if (lista.isEmpty()) {
+            Toast.makeText(this, "Todavía no tenés preguntas para repasar", Toast.LENGTH_SHORT).show()
+            return
+        }
+        modoSuper = false
+        modoContra = false
+        modoRepaso = true
+        catElegida = "Mezcla"
+        difElegida = 0
+        ronda = lista.shuffled()
+        indice = 0
+        puntos = 0
+        vidas = 3
+        racha = 0
+        cincuenta = 2
+        saltos = 1
+        aciertosPartida = 0
+        partidaXp = 0
+        partidaMonedas = 0
+        falladas.clear()
+        mostrarPregunta()
+    }
+
+    private fun mostrarFinRepaso() {
+        pantalla = "fin"
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("📖 Repaso terminado", 26f)
+        texto("Acertaste $aciertosPartida de ${ronda.size}", 20f, 24)
+        texto("Te quedan ${idsFalladas().size} pendientes", 18f, 8)
+        texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
+        boton("Repasar de nuevo", Color.parseColor("#5E35B1")) { empezarRepaso() }
+        boton("Volver a Jugar") { mostrarJugar() }
+        animarEntrada()
+    }
+
+    private fun categoriaDelDia(): String = categorias[diaHoy() % categorias.size]
+
+    private fun poolMisiones(): List<Mision> = listOf(
+        Mision("aciertos10", "Acertá 10 preguntas", 10, 15),
+        Mision("aciertos25", "Acertá 25 preguntas", 25, 30),
+        Mision("racha5", "Conseguí 5 aciertos seguidos", 1, 20),
+        Mision("contra", "Jugá una partida de Contrarreloj", 1, 15),
+        Mision("super", "Jugá una partida de Supervivencia", 1, 15),
+        Mision("perfecta", "Terminá una partida con 10 aciertos o más sin fallar", 1, 30),
+        Mision("cat", "Acertá 5 preguntas de ${categoriaDelDia()}", 5, 20),
+        Mision("dia", "Respondé la pregunta del día", 1, 10),
+        Mision("partidas3", "Jugá 3 partidas", 3, 15)
+    )
+
+    private fun misionesHoy(): List<Mision> =
+        poolMisiones().shuffled(kotlin.random.Random(diaHoy())).take(3)
+
+    private fun asegurarDiaMisiones() {
+        val hoy = diaHoy()
+        if (prefs().getInt("mis_dia", -1) != hoy) {
+            val e = prefs().edit()
+            for (m in poolMisiones()) {
+                e.remove("mis_prog_${m.id}")
+                e.remove("mis_ok_${m.id}")
+            }
+            e.putInt("mis_dia", hoy).apply()
+        }
+    }
+
+    private fun misionesCompletas(): Int {
+        asegurarDiaMisiones()
+        return misionesHoy().count { prefs().getBoolean("mis_ok_${it.id}", false) }
+    }
+
+    private fun progresoMision(id: String) {
+        asegurarDiaMisiones()
+        val m = misionesHoy().firstOrNull { it.id == id } ?: return
+        if (prefs().getBoolean("mis_ok_$id", false)) return
+        val nuevo = prefs().getInt("mis_prog_$id", 0) + 1
+        if (nuevo >= m.meta) {
+            prefs().edit()
+                .putInt("mis_prog_$id", m.meta)
+                .putBoolean("mis_ok_$id", true)
+                .putInt("monedas", monedas() + m.premio)
+                .apply()
+            Toast.makeText(this, "✅ Misión cumplida: +${m.premio} 🪙", Toast.LENGTH_LONG).show()
+            if (misionesCompletas() == 3) {
+                prefs().edit().putInt("monedas", monedas() + 25).apply()
+                Toast.makeText(this, "🎉 ¡Completaste las 3 misiones! +25 🪙 de bonus", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            prefs().edit().putInt("mis_prog_$id", nuevo).apply()
+        }
+    }
+
+    private fun mostrarMisiones() {
+        pantalla = "misiones"
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        asegurarDiaMisiones()
+        texto("🎯 Misiones del día", 28f)
+        texto("Se renuevan todos los días. Si cumplís las 3, ganás +25 🪙 de bonus.", 13f, 8)
+        for (m in misionesHoy()) {
+            val ok = prefs().getBoolean("mis_ok_${m.id}", false)
+            val prog = prefs().getInt("mis_prog_${m.id}", 0)
+            val t = texto((if (ok) "✅ " else "⬜ ") + m.desc, 18f, 20)
+            if (ok) {
+                t.setTextColor(Color.parseColor("#66BB6A"))
+            }
+            texto("Progreso: ${minOf(prog, m.meta)} / ${m.meta}   ·   Premio: ${m.premio} 🪙", 13f, 2)
+        }
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
     private fun colorContra(ms: Long): Int {
         if (ms > 20000L) return Color.parseColor("#43A047")
         if (ms > 10000L) return Color.parseColor("#FFB300")
@@ -1185,6 +1409,7 @@ class MainActivity : AppCompatActivity() {
     private fun empezarContra() {
         if (todas.isEmpty()) return
         modoSuper = false
+        modoRepaso = false
         modoContra = true
         catElegida = "Mezcla"
         difElegida = 0
@@ -1283,6 +1508,7 @@ class MainActivity : AppCompatActivity() {
             racha = 0
             erroresContra++
             falladas.add(p)
+            marcarFallada(p)
             elegido.background = fondo(Color.RED)
             for (b in botones) {
                 if (b.text.toString() == correctaTexto) {
@@ -1324,6 +1550,8 @@ class MainActivity : AppCompatActivity() {
             prefs().edit().putInt("record_contra", puntos).apply()
         }
         desbloquear("primera")
+        progresoMision("contra")
+        progresoMision("partidas3")
         texto("⏱️ ¡Se acabó el tiempo!", 26f)
         texto("Puntos: $puntos", 22f, 24)
         texto("Aciertos: $aciertosPartida  ·  Errores: $erroresContra", 18f, 8)
@@ -1347,6 +1575,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarFin() {
         pantalla = "fin"
+        if (modoRepaso) {
+            mostrarFinRepaso()
+            return
+        }
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
@@ -1357,6 +1589,9 @@ class MainActivity : AppCompatActivity() {
             prefs().edit().putInt(clave, puntos).apply()
         }
         logrosFinPartida()
+        progresoMision("partidas3")
+        if (modoSuper) progresoMision("super")
+        if (aciertosPartida >= 10 && falladas.isEmpty()) progresoMision("perfecta")
         texto(if (vidas <= 0) "Te quedaste sin vidas" else "¡Terminaste las preguntas!", 26f)
         texto("Puntos: $puntos", 22f, 24)
         if (modoSuper) {
