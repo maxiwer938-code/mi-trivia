@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -117,6 +118,8 @@ class MainActivity : AppCompatActivity() {
     private var modoSuper = false
     private var aciertosPartida = 0
     private var sonido = true
+    private var musica = true
+    private var player: MediaPlayer? = null
     private var sonidoOk: ShortArray = ShortArray(0)
     private var sonidoMal: ShortArray = ShortArray(0)
     private val falladas = ArrayList<Pregunta>()
@@ -135,6 +138,7 @@ class MainActivity : AppCompatActivity() {
         todas = cargarPreguntas()
         datos = cargarDatos()
         sonido = prefs().getBoolean("sonido", true)
+        musica = prefs().getBoolean("musica", true)
         sonidoOk = generarTono(listOf(523, 659, 784), 90, 0.5, false)
         sonidoMal = generarTono(listOf(196, 147), 180, 0.25, true)
 
@@ -175,10 +179,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        iniciarMusica()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        pausarMusica()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         timer?.cancel()
         handler.removeCallbacksAndMessages(null)
+        try {
+            player?.release()
+        } catch (e: Exception) {
+            // nada
+        }
+        player = null
+    }
+
+    private fun iniciarMusica() {
+        if (!musica) return
+        try {
+            if (player == null) {
+                val afd = assets.openFd("musica.ogg")
+                val mp = MediaPlayer()
+                mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                mp.isLooping = true
+                mp.setVolume(0.3f, 0.3f)
+                mp.prepare()
+                player = mp
+            }
+            player?.start()
+        } catch (e: Exception) {
+            // si no hay música o falla, el juego sigue sin ella
+        }
+    }
+
+    private fun pausarMusica() {
+        try {
+            player?.pause()
+        } catch (e: Exception) {
+            // nada
+        }
     }
 
     private fun cargarPreguntas(): List<Pregunta> {
@@ -657,6 +704,16 @@ class MainActivity : AppCompatActivity() {
             prefs().edit().putBoolean("sonido", sonido).apply()
             mostrarConfig()
         }
+        boton("Música de fondo: " + (if (musica) "SÍ" else "NO"), Color.DKGRAY) {
+            musica = !musica
+            prefs().edit().putBoolean("musica", musica).apply()
+            if (musica) {
+                iniciarMusica()
+            } else {
+                pausarMusica()
+            }
+            mostrarConfig()
+        }
 
         texto("Cómo se juega", 18f, 28)
         texto(
@@ -686,7 +743,7 @@ class MainActivity : AppCompatActivity() {
                 seguro = true
                 bBorrar.text = "¿Seguro? Tocá de nuevo para borrar todo"
             } else {
-                prefs().edit().clear().putBoolean("sonido", sonido).apply()
+                prefs().edit().clear().putBoolean("sonido", sonido).putBoolean("musica", musica).apply()
                 Toast.makeText(this, "Listo, todo borrado", Toast.LENGTH_SHORT).show()
                 mostrarConfig()
             }
