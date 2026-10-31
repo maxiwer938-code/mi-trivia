@@ -45,7 +45,7 @@ data class Pregunta(
 
 private class Mision(val id: String, val desc: String, val meta: Int, val premio: Int)
 
-private class Tema(val id: String, val nombre: String, val precio: Int, val fondo: Int)
+private class Tema(val id: String, val nombre: String, val fondo: Int)
 
 private class Logro(val id: String, val emoji: String, val nombre: String, val desc: String)
 
@@ -85,11 +85,11 @@ class MainActivity : AppCompatActivity() {
     )
 
     private val temas: List<Tema> = listOf(
-        Tema("clasico", "Clásico", 0, 0),
-        Tema("medianoche", "🌙 Medianoche", 60, Color.parseColor("#0D1B2A")),
-        Tema("bosque", "🌲 Bosque", 60, Color.parseColor("#0F2A1D")),
-        Tema("atardecer", "🌇 Atardecer", 80, Color.parseColor("#2B1B3D")),
-        Tema("dorado", "🏆 Dorado", 120, Color.parseColor("#2A2108"))
+        Tema("clasico", "Clásico", 0),
+        Tema("medianoche", "🌙 Medianoche", Color.parseColor("#0D1B2A")),
+        Tema("bosque", "🌲 Bosque", Color.parseColor("#0F2A1D")),
+        Tema("atardecer", "🌇 Atardecer", Color.parseColor("#2B1B3D")),
+        Tema("dorado", "🏆 Dorado", Color.parseColor("#2A2108"))
     )
 
     private val logros: List<Logro> = listOf(
@@ -794,35 +794,6 @@ class MainActivity : AppCompatActivity() {
         articulo("inv_5050", "🎯 50/50 extra", 15, "Elimina dos opciones incorrectas.")
         articulo("inv_tiempo", "⏱️ +10 segundos", 20, "Suma 10 segundos a la pregunta actual.")
         articulo("inv_vida", "❤️ Vida extra", 40, "Te da una vida más (máximo 5).")
-        texto("🎨 Temas de color", 22f, 32)
-        texto("Cambian el fondo de toda la app. Se compran una sola vez.", 13f, 4)
-        for (t in temas) {
-            val tengo = t.precio == 0 || prefs().getBoolean("tema_${t.id}", false)
-            val activo = prefs().getString("tema_activo", "clasico") == t.id
-            if (activo) {
-                boton("✓ ${t.nombre}  (en uso)", Color.parseColor("#2E7D32")) { }
-            } else if (tengo) {
-                boton("Usar ${t.nombre}", Color.parseColor("#546E7A")) {
-                    prefs().edit().putString("tema_activo", t.id).apply()
-                    aplicarTema()
-                    mostrarTienda()
-                }
-            } else {
-                boton("Comprar ${t.nombre}  ·  ${t.precio} 🪙", Color.parseColor("#00897B")) {
-                    if (monedas() < t.precio) {
-                        Toast.makeText(this, "Te faltan monedas", Toast.LENGTH_SHORT).show()
-                    } else {
-                        prefs().edit()
-                            .putInt("monedas", monedas() - t.precio)
-                            .putBoolean("tema_${t.id}", true)
-                            .putString("tema_activo", t.id)
-                            .apply()
-                        aplicarTema()
-                        mostrarTienda()
-                    }
-                }
-            }
-        }
         boton("Volver") { mostrarCategorias() }
         animarEntrada()
     }
@@ -919,6 +890,20 @@ class MainActivity : AppCompatActivity() {
                 pausarMusica()
             }
             mostrarConfig()
+        }
+
+        texto("🎨 Fondo de la app", 18f, 28)
+        for (t in temas) {
+            val activo = prefs().getString("tema_activo", "clasico") == t.id
+            if (activo) {
+                boton("✓ ${t.nombre}", Color.parseColor("#2E7D32")) { }
+            } else {
+                boton(t.nombre, Color.parseColor("#546E7A")) {
+                    prefs().edit().putString("tema_activo", t.id).apply()
+                    aplicarTema()
+                    mostrarConfig()
+                }
+            }
         }
 
         texto("Cómo se juega", 18f, 28)
