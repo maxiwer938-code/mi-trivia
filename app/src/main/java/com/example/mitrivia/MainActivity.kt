@@ -12,7 +12,6 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -31,6 +30,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.TimeZone
 import org.json.JSONArray
 
@@ -63,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         "Geografía" to Color.parseColor("#00796B"),
         "Música" to Color.parseColor("#AD1457"),
         "Cultura argentina" to Color.parseColor("#0288D1"),
+        "Contrarreloj" to Color.parseColor("#8E24AA"),
         "Mezcla" to Color.parseColor("#455A64")
     )
 
@@ -87,7 +89,8 @@ class MainActivity : AppCompatActivity() {
         Logro("cien", "💯", "Cien aciertos", "Acertá 100 preguntas en total"),
         Logro("super15", "♾️", "Sobreviviente", "Acertá 15 preguntas en una partida de Supervivencia"),
         Logro("dia3", "📅", "Constante", "3 días seguidos con la pregunta del día"),
-        Logro("dia7", "🗓️", "Hábito", "7 días seguidos con la pregunta del día")
+        Logro("dia7", "🗓️", "Hábito", "7 días seguidos con la pregunta del día"),
+        Logro("contra15", "⚡", "Velocista", "Acertá 15 preguntas en una partida de Contrarreloj")
     ) + categorias.map {
         Logro("exp_$it", emojis[it] ?: "⭐", "Experto en $it", "Acertá 25 preguntas de $it")
     }
@@ -115,11 +118,22 @@ class MainActivity : AppCompatActivity() {
     private var respondida = false
     private var pantalla = "inicio"
     private var ultimoAtras = 0L
+    private var modoContra = false
+    private var timerContra: CountDownTimer? = null
+    private var restanteContra = 0L
+    private var restanteMs = 0L
+    private var erroresContra = 0
+    private var partidaXp = 0
+    private var partidaMonedas = 0
+    private val duracionContra = 60000L
+    private lateinit var vidasView: TextView
+    private lateinit var tiempoContraView: TextView
+    private lateinit var barraContra: ProgressBar
     private var modoSuper = false
     private var aciertosPartida = 0
     private var sonido = true
     private var musica = true
-    private var player: MediaPlayer? = null
+    private var pista: AudioTrack? = null
     private var sonidoOk: ShortArray = ShortArray(0)
     private var sonidoMal: ShortArray = ShortArray(0)
     private val falladas = ArrayList<Pregunta>()
@@ -163,7 +177,13 @@ class MainActivity : AppCompatActivity() {
         when (pantalla) {
             "inicio" -> confirmarSalida("Tocá otra vez para salir") { finish() }
             "pregunta" -> confirmarSalida("Tocá otra vez para dejar la partida") { mostrarCategorias() }
-            "dificultad", "fin" -> if (modoSuper) mostrarCategorias() else mostrarJugar()
+            "dificultad" -> mostrarElegirCategoria()
+            "categorias", "fin", "fincontra" -> mostrarJugar()
+            "contra" -> confirmarSalida("Tocá otra vez para dejar la partida") {
+                timerContra?.cancel()
+                modoContra = false
+                mostrarCategorias()
+            }
             else -> mostrarCategorias()
         }
     }
@@ -182,39 +202,59 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         iniciarMusica()
+        if (modoContra && pantalla == "contra" && !respondida) {
+            iniciarTimerContra()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         pausarMusica()
+        timerContra?.cancel()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         timer?.cancel()
         handler.removeCallbacksAndMessages(null)
+        timerContra?.cancel()
         try {
-            player?.release()
+            pista?.release()
         } catch (e: Exception) {
             // nada
         }
-        player = null
+        pista = null
     }
 
     private fun iniciarMusica() {
         if (!musica) return
         try {
-            if (player == null) {
-                val afd = assets.openFd("musica.ogg")
-                val mp = MediaPlayer()
-                mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                afd.close()
-                mp.isLooping = true
-                mp.setVolume(0.3f, 0.3f)
-                mp.prepare()
-                player = mp
+            if (pista == null) {
+                val bytes = assets.open("musica.pcm").use { it.readBytes() }
+                val n = bytes.size / 2
+                val muestras = ShortArray(n)
+                ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(muestras)
+                val atributos = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+                val formato = AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(22050)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+                val at = AudioTrack.Builder()
+                    .setAudioAttributes(atributos)
+                    .setAudioFormat(formato)
+                    .setBufferSizeInBytes(bytes.size)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+                at.write(muestras, 0, n)
+                at.setLoopPoints(0, n, -1)
+                at.setVolume(0.3f)
+                pista = at
             }
-            player?.start()
+            pista?.play()
         } catch (e: Exception) {
             // si no hay música o falla, el juego sigue sin ella
         }
@@ -222,7 +262,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun pausarMusica() {
         try {
-            player?.pause()
+            pista?.pause()
         } catch (e: Exception) {
             // nada
         }
@@ -540,6 +580,7 @@ class MainActivity : AppCompatActivity() {
                 if (acierto) {
                     b.background = fondo(Color.GREEN)
                     rebote(b)
+                    darRecompensa(p.dificultad + 2)
                     sonar(sonidoOk)
                     vibrar(40L)
                 } else {
@@ -597,6 +638,7 @@ class MainActivity : AppCompatActivity() {
         if (racha >= 5) desbloquear("racha5")
         if (racha >= 10) desbloquear("racha10")
         if (modoSuper && aciertosPartida >= 15) desbloquear("super15")
+        if (modoContra && aciertosPartida >= 15) desbloquear("contra15")
     }
 
     private fun logrosFinPartida() {
@@ -642,34 +684,141 @@ class MainActivity : AppCompatActivity() {
     private fun mostrarCategorias() {
         pantalla = "inicio"
         timer?.cancel()
+        timerContra?.cancel()
+        modoContra = false
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
         if (!agregarLogo()) {
             texto("Trivia Max", 30f)
         }
+        agregarProgreso()
         boton("🎮 Jugar", Color.parseColor("#1E88E5")) { mostrarJugar() }
         val etiquetaDia = if (yaRespondioHoy()) "📅 Pregunta del día ✓" else "📅 Pregunta del día"
         boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
             mostrarDelDia()
         }
-        boton("♾️ Supervivencia  ·  récord ${prefs().getInt("record_super", 0)}", Color.parseColor("#D84315")) {
-            empezarSuper()
-        }
         boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
             mostrarLogros()
         }
+        boton("🛒 Tienda  ·  🪙 ${monedas()}", Color.parseColor("#00897B")) { mostrarTienda() }
         boton("⚙️ Configuración", Color.DKGRAY) { mostrarConfig() }
         animarEntrada()
+    }
+
+    private fun xpTotal(): Int = prefs().getInt("xp", 0)
+
+    private fun monedas(): Int = prefs().getInt("monedas", 0)
+
+    private fun umbral(n: Int): Int = 150 * n * (n - 1) / 2
+
+    private fun nivelDe(xp: Int): Int {
+        var n = 1
+        while (xp >= umbral(n + 1)) {
+            n++
+        }
+        return n
+    }
+
+    private fun darRecompensa(ganados: Int) {
+        val antes = nivelDe(xpTotal())
+        val xpNuevo = xpTotal() + ganados * 10
+        var mon = monedas() + ganados
+        val despues = nivelDe(xpNuevo)
+        if (despues > antes) {
+            val premio = 25 * (despues - antes)
+            mon += premio
+            Toast.makeText(this, "🎉 ¡Nivel $despues! +$premio monedas", Toast.LENGTH_LONG).show()
+        }
+        prefs().edit().putInt("xp", xpNuevo).putInt("monedas", mon).apply()
+        partidaXp += ganados * 10
+        partidaMonedas += ganados
+    }
+
+    private fun agregarProgreso() {
+        val xp = xpTotal()
+        val n = nivelDe(xp)
+        val base = umbral(n)
+        val siguiente = umbral(n + 1)
+        texto("⭐ Nivel $n   ·   🪙 ${monedas()} monedas", 18f, 12).gravity = Gravity.CENTER_HORIZONTAL
+        val b = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        b.max = siguiente - base
+        b.progress = xp - base
+        b.progressTintList = ColorStateList.valueOf(Color.parseColor("#FFB300"))
+        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8))
+        lp.topMargin = 8
+        b.layoutParams = lp
+        contenedor.addView(b)
+        texto("${xp - base} / ${siguiente - base} XP para el nivel ${n + 1}", 12f, 4).gravity = Gravity.CENTER_HORIZONTAL
+    }
+
+    private fun mostrarTienda() {
+        pantalla = "tienda"
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("🛒 Tienda", 28f)
+        texto("Tus monedas: 🪙 ${monedas()}", 18f, 8).setTextColor(Color.parseColor("#FFB300"))
+        texto(
+            "Ganás monedas acertando preguntas y subiendo de nivel. " +
+                "Lo que comprás lo usás durante una partida.",
+            13f, 8
+        )
+        articulo("inv_5050", "🎯 50/50 extra", 15, "Elimina dos opciones incorrectas.")
+        articulo("inv_tiempo", "⏱️ +10 segundos", 20, "Suma 10 segundos a la pregunta actual.")
+        articulo("inv_vida", "❤️ Vida extra", 40, "Te da una vida más (máximo 5).")
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
+    private fun articulo(clave: String, nombre: String, precio: Int, desc: String) {
+        texto("$nombre  (tenés ${prefs().getInt(clave, 0)})", 18f, 24)
+        texto(desc, 13f, 2)
+        boton("Comprar por $precio 🪙", Color.parseColor("#2E7D32")) {
+            if (monedas() < precio) {
+                Toast.makeText(this, "Te faltan monedas", Toast.LENGTH_SHORT).show()
+            } else {
+                prefs().edit()
+                    .putInt("monedas", monedas() - precio)
+                    .putInt(clave, prefs().getInt(clave, 0) + 1)
+                    .apply()
+                mostrarTienda()
+            }
+        }
     }
 
     private fun mostrarJugar() {
         pantalla = "jugar"
         timer?.cancel()
+        timerContra?.cancel()
+        modoContra = false
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
         texto("🎮 Jugar", 28f)
+        texto("Elegí cómo querés jugar", 16f, 8)
+        boton("📚 Por categoría", Color.parseColor("#1E88E5")) { mostrarElegirCategoria() }
+        texto("Elegí un tema y una dificultad. Tenés 3 vidas y $tiempoPorPregunta segundos por pregunta.", 13f, 6)
+        boton("♾️ Supervivencia  ·  récord ${prefs().getInt("record_super", 0)}", Color.parseColor("#D84315")) {
+            empezarSuper()
+        }
+        texto("Todas las categorías, de fácil a difícil, hasta quedarte sin vidas.", 13f, 6)
+        boton("⏱️ Contrarreloj  ·  récord ${prefs().getInt("record_contra", 0)}", colorDe("Contrarreloj")) {
+            empezarContra()
+        }
+        texto("60 segundos para acertar todas las que puedas. Cada error te resta 3 segundos.", 13f, 6)
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
+    private fun mostrarElegirCategoria() {
+        pantalla = "categorias"
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("📚 Por categoría", 28f)
         texto(
             "Tenés 3 vidas, $tiempoPorPregunta segundos por pregunta y comodines. " +
                 "Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.",
@@ -688,7 +837,7 @@ class MainActivity : AppCompatActivity() {
             catElegida = "Mezcla"
             mostrarDificultad()
         }
-        boton("Volver") { mostrarCategorias() }
+        boton("Volver") { mostrarJugar() }
         animarEntrada()
     }
 
@@ -722,7 +871,9 @@ class MainActivity : AppCompatActivity() {
                 "• Con 3 aciertos seguidos ganás 1 punto extra en cada acierto.\n" +
                 "• Comodines: 50/50 (2 por partida) y saltar pregunta (1).\n" +
                 "• Pregunta del día: una por día, y cuenta tu racha de días.\n" +
-                "• Supervivencia: preguntas cada vez más difíciles hasta quedarte sin vidas.",
+                "• Supervivencia: preguntas cada vez más difíciles hasta quedarte sin vidas.\n" +
+                "• Contrarreloj: 60 segundos, cada error te resta 3.\n" +
+                "• Acertando ganás monedas 🪙 y experiencia para subir de nivel; en la tienda comprás ayudas.",
             14f, 8
         )
 
@@ -737,7 +888,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         var seguro = false
-        val bBorrar = boton("🗑️ Borrar récords, logros y racha", Color.parseColor("#B71C1C")) { }
+        val bBorrar = boton("🗑️ Borrar récords, logros, monedas y racha", Color.parseColor("#B71C1C")) { }
         bBorrar.setOnClickListener {
             if (!seguro) {
                 seguro = true
@@ -768,7 +919,7 @@ class MainActivity : AppCompatActivity() {
             difElegida = 0
             empezar()
         }
-        boton("Volver") { mostrarJugar() }
+        boton("Volver") { mostrarElegirCategoria() }
         animarEntrada()
     }
 
@@ -786,6 +937,9 @@ class MainActivity : AppCompatActivity() {
         vidas = 3
         racha = 0
         aciertosPartida = 0
+        modoContra = false
+        partidaXp = 0
+        partidaMonedas = 0
         cincuenta = 2
         saltos = 1
         falladas.clear()
@@ -806,7 +960,7 @@ class MainActivity : AppCompatActivity() {
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
 
-        texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
+        vidasView = texto("Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha", 18f)
         val progreso = if (modoSuper) "Pregunta ${indice + 1}" else "${indice + 1} de ${ronda.size}"
         texto(
             "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · $progreso",
@@ -861,6 +1015,56 @@ class MainActivity : AppCompatActivity() {
             mostrarPregunta()
         }
 
+        val inv5050 = prefs().getInt("inv_5050", 0)
+        if (inv5050 > 0) {
+            val bExtra = boton("🎯 50/50 extra  (tenés $inv5050)", Color.parseColor("#2E7D32")) { }
+            bExtra.setOnClickListener {
+                if (respondida || usado50) return@setOnClickListener
+                val quedan = prefs().getInt("inv_5050", 0)
+                if (quedan <= 0) return@setOnClickListener
+                usado50 = true
+                prefs().edit().putInt("inv_5050", quedan - 1).apply()
+                bExtra.text = "🎯 50/50 extra  (tenés ${quedan - 1})"
+                var ocultar = 2
+                for (b in botones.shuffled()) {
+                    if (ocultar > 0 && b.text.toString() != correctaTexto) {
+                        b.visibility = View.INVISIBLE
+                        ocultar--
+                    }
+                }
+            }
+            comodines.add(bExtra)
+        }
+        val invTiempo = prefs().getInt("inv_tiempo", 0)
+        if (invTiempo > 0) {
+            val bTiempo = boton("⏱️ +10 segundos  (tenés $invTiempo)", Color.parseColor("#2E7D32")) { }
+            bTiempo.setOnClickListener {
+                if (respondida) return@setOnClickListener
+                val quedan = prefs().getInt("inv_tiempo", 0)
+                if (quedan <= 0) return@setOnClickListener
+                prefs().edit().putInt("inv_tiempo", quedan - 1).apply()
+                bTiempo.text = "⏱️ +10 segundos  (tenés ${quedan - 1})"
+                val total = restanteMs + 10000L
+                barra.max = total.toInt()
+                iniciarTimer(p, botones, correctaTexto, total)
+            }
+            comodines.add(bTiempo)
+        }
+        val invVida = prefs().getInt("inv_vida", 0)
+        if (invVida > 0) {
+            val bVida = boton("❤️ Vida extra  (tenés $invVida)", Color.parseColor("#2E7D32")) { }
+            bVida.setOnClickListener {
+                if (respondida || vidas >= 5) return@setOnClickListener
+                val quedan = prefs().getInt("inv_vida", 0)
+                if (quedan <= 0) return@setOnClickListener
+                prefs().edit().putInt("inv_vida", quedan - 1).apply()
+                vidas++
+                bVida.text = "❤️ Vida extra  (tenés ${quedan - 1})"
+                vidasView.text = "Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha"
+            }
+            comodines.add(bVida)
+        }
+
         comodines.add(b50)
         comodines.add(bSaltar)
 
@@ -868,10 +1072,17 @@ class MainActivity : AppCompatActivity() {
         iniciarTimer(p, botones, correctaTexto)
     }
 
-    private fun iniciarTimer(p: Pregunta, botones: List<Button>, correctaTexto: String) {
+    private fun iniciarTimer(
+        p: Pregunta,
+        botones: List<Button>,
+        correctaTexto: String,
+        duracion: Long = tiempoPorPregunta * 1000L
+    ) {
+        restanteMs = duracion
         timer?.cancel()
-        timer = object : CountDownTimer(tiempoPorPregunta * 1000L, 100L) {
+        timer = object : CountDownTimer(duracion, 100L) {
             override fun onTick(ms: Long) {
+                restanteMs = ms
                 tiempoView.text = "Tiempo: ${(ms + 999) / 1000}"
                 barra.progress = ms.toInt()
                 barra.progressTintList = ColorStateList.valueOf(colorBarra(ms))
@@ -909,6 +1120,7 @@ class MainActivity : AppCompatActivity() {
             val ganados = p.dificultad + bonus
             puntos += ganados
             registrarAcierto(p)
+            darRecompensa(ganados)
             elegido?.background = fondo(Color.GREEN)
             frase = if (racha >= 3) {
                 "🔥 ¡Racha de $racha! +$ganados puntos"
@@ -964,6 +1176,175 @@ class MainActivity : AppCompatActivity() {
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
+    private fun colorContra(ms: Long): Int {
+        if (ms > 20000L) return Color.parseColor("#43A047")
+        if (ms > 10000L) return Color.parseColor("#FFB300")
+        return Color.parseColor("#E53935")
+    }
+
+    private fun empezarContra() {
+        if (todas.isEmpty()) return
+        modoSuper = false
+        modoContra = true
+        catElegida = "Mezcla"
+        difElegida = 0
+        ronda = todas.shuffled()
+        indice = 0
+        puntos = 0
+        racha = 0
+        aciertosPartida = 0
+        erroresContra = 0
+        partidaXp = 0
+        partidaMonedas = 0
+        falladas.clear()
+        restanteContra = duracionContra
+        mostrarPreguntaContra()
+    }
+
+    private fun mostrarPreguntaContra() {
+        if (!modoContra) return
+        pantalla = "contra"
+        if (indice >= ronda.size) {
+            ronda = todas.shuffled()
+            indice = 0
+        }
+        respondida = false
+        val p = ronda[indice]
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+
+        tiempoContraView = texto("", 18f)
+        barraContra = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        barraContra.max = duracionContra.toInt()
+        val lpBarra = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10))
+        lpBarra.topMargin = 8
+        barraContra.layoutParams = lpBarra
+        contenedor.addView(barraContra)
+
+        texto("${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]}", 14f, 12)
+            .setTextColor(colorDe(p.categoria))
+        texto(p.texto, 24f, 24)
+
+        val correctaTexto = p.opciones[p.correcta]
+        val botones = ArrayList<Button>()
+        for (op in p.opciones.shuffled()) {
+            val b = boton(op, Color.LTGRAY, Color.BLACK) { }
+            b.setOnClickListener { responderContra(b, op == correctaTexto, p, botones, correctaTexto) }
+            botones.add(b)
+        }
+        actualizarContraUI()
+        iniciarTimerContra()
+    }
+
+    private fun actualizarContraUI() {
+        tiempoContraView.text = "⏱️ ${(restanteContra + 999) / 1000} s   ·   Puntos: $puntos   ·   Aciertos: $aciertosPartida"
+        barraContra.progress = restanteContra.toInt()
+        barraContra.progressTintList = ColorStateList.valueOf(colorContra(restanteContra))
+    }
+
+    private fun iniciarTimerContra() {
+        timerContra?.cancel()
+        if (restanteContra <= 0L) return
+        timerContra = object : CountDownTimer(restanteContra, 100L) {
+            override fun onTick(ms: Long) {
+                restanteContra = ms
+                actualizarContraUI()
+            }
+
+            override fun onFinish() {
+                restanteContra = 0L
+                terminarContra()
+            }
+        }
+        timerContra?.start()
+    }
+
+    private fun responderContra(
+        elegido: Button,
+        acierto: Boolean,
+        p: Pregunta,
+        botones: List<Button>,
+        correctaTexto: String
+    ) {
+        if (respondida || !modoContra) return
+        respondida = true
+        if (acierto) {
+            racha++
+            val bonus = if (racha >= 3) 1 else 0
+            val ganados = p.dificultad + bonus
+            puntos += ganados
+            registrarAcierto(p)
+            darRecompensa(ganados)
+            elegido.background = fondo(Color.GREEN)
+            sonar(sonidoOk)
+            vibrar(30L)
+        } else {
+            racha = 0
+            erroresContra++
+            falladas.add(p)
+            elegido.background = fondo(Color.RED)
+            for (b in botones) {
+                if (b.text.toString() == correctaTexto) {
+                    b.background = fondo(Color.GREEN)
+                }
+            }
+            sonar(sonidoMal)
+            vibrar(150L)
+            timerContra?.cancel()
+            restanteContra = maxOf(0L, restanteContra - 3000L)
+            if (restanteContra <= 0L) {
+                handler.postDelayed({
+                    if (modoContra) {
+                        terminarContra()
+                    }
+                }, 450L)
+                return
+            }
+            iniciarTimerContra()
+        }
+        handler.postDelayed({
+            if (modoContra && pantalla == "contra") {
+                indice++
+                mostrarPreguntaContra()
+            }
+        }, 450L)
+    }
+
+    private fun terminarContra() {
+        timerContra?.cancel()
+        modoContra = false
+        pantalla = "fincontra"
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        val anterior = prefs().getInt("record_contra", 0)
+        val nuevo = puntos > anterior
+        if (nuevo) {
+            prefs().edit().putInt("record_contra", puntos).apply()
+        }
+        desbloquear("primera")
+        texto("⏱️ ¡Se acabó el tiempo!", 26f)
+        texto("Puntos: $puntos", 22f, 24)
+        texto("Aciertos: $aciertosPartida  ·  Errores: $erroresContra", 18f, 8)
+        texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
+        texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
+        boton("Jugar de nuevo", colorDe("Contrarreloj")) { empezarContra() }
+        boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
+            compartirTexto("Hice $puntos puntos en 60 segundos en Trivia Max ⏱️ ¿Me ganás?")
+        }
+        boton("Volver a Jugar") { mostrarJugar() }
+        if (falladas.isNotEmpty()) {
+            texto("Para repasar", 22f, 40)
+            for (f in falladas) {
+                texto("✗ ${f.texto}", 16f, 24)
+                texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
+                    .setTextColor(Color.parseColor("#43A047"))
+            }
+        }
+        animarEntrada()
+    }
+
     private fun mostrarFin() {
         pantalla = "fin"
         contenedor.removeAllViews()
@@ -981,13 +1362,14 @@ class MainActivity : AppCompatActivity() {
         if (modoSuper) {
             texto("Aciertos: $aciertosPartida", 18f, 8)
         }
+        texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
         boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
         boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
             val modoTxt = if (modoSuper) "Supervivencia" else catElegida
             compartirTexto("Hice $puntos puntos en Trivia Max ($modoTxt) 🔥 ¿Me ganás? ¡A jugar y ganar!")
         }
-        boton("Elegir otra categoría") { mostrarJugar() }
+        boton("Elegir otro modo o categoría") { mostrarJugar() }
 
         if (falladas.isNotEmpty()) {
             texto("Para repasar", 22f, 40)
