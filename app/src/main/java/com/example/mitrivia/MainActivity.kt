@@ -5,6 +5,7 @@ import android.animation.PropertyValuesHolder
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -40,7 +41,8 @@ data class Pregunta(
     val dificultad: Int,
     val texto: String,
     val opciones: List<String>,
-    val correcta: Int
+    val correcta: Int,
+    val imagen: String? = null
 )
 
 private class Mision(val id: String, val desc: String, val meta: Int, val premio: Int)
@@ -53,7 +55,7 @@ class MainActivity : AppCompatActivity() {
 
     private val categorias = listOf(
         "Videojuegos", "Fútbol", "Cine y series", "Ciencia y naturaleza",
-        "Historia", "Geografía", "Música", "Cultura argentina"
+        "Historia", "Geografía", "Música", "Cultura argentina", "Banderas"
     )
     private val nombresDif = listOf("Fácil", "Medio", "Difícil")
     private val tiempoPorPregunta = 15
@@ -69,6 +71,7 @@ class MainActivity : AppCompatActivity() {
         "Música" to Color.parseColor("#AD1457"),
         "Cultura argentina" to Color.parseColor("#0288D1"),
         "Contrarreloj" to Color.parseColor("#8E24AA"),
+        "Banderas" to Color.parseColor("#00ACC1"),
         "Mezcla" to Color.parseColor("#455A64")
     )
 
@@ -81,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         "Geografía" to "🌎",
         "Música" to "🎵",
         "Cultura argentina" to "🧉",
+        "Banderas" to "🚩",
         "Mezcla" to "🎲"
     )
 
@@ -148,6 +152,7 @@ class MainActivity : AppCompatActivity() {
     private var sonido = true
     private var musica = true
     private var pista: AudioTrack? = null
+    private val cacheImg = HashMap<String, Bitmap>()
     private var sonidoOk: ShortArray = ShortArray(0)
     private var sonidoMal: ShortArray = ShortArray(0)
     private val falladas = ArrayList<Pregunta>()
@@ -315,7 +320,8 @@ class MainActivity : AppCompatActivity() {
                     o.getInt("dificultad"),
                     o.getString("pregunta"),
                     opciones,
-                    o.getInt("correcta")
+                    o.getInt("correcta"),
+                    o.optString("imagen", "").ifEmpty { null }
                 )
             )
         }
@@ -479,6 +485,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun cargarImagen(ref: String): Bitmap? {
+        val guardada = cacheImg[ref]
+        if (guardada != null) return guardada
+        try {
+            val partes = ref.split("|")
+            val completa = BitmapFactory.decodeStream(assets.open(partes[0])) ?: return null
+            var resultado = completa
+            if (partes.size >= 4) {
+                val i = partes[1].toInt()
+                val cols = partes[2].toInt()
+                val filas = partes[3].toInt()
+                val w = completa.width / cols
+                val h = completa.height / filas
+                resultado = Bitmap.createBitmap(completa, (i % cols) * w, (i / cols) * h, w, h)
+            }
+            cacheImg[ref] = resultado
+            return resultado
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun agregarImagen(p: Pregunta, altoDp: Int = 190) {
+        val ref = p.imagen ?: return
+        val bmp = cargarImagen(ref) ?: return
+        val iv = ImageView(this)
+        iv.setImageBitmap(bmp)
+        iv.scaleType = ImageView.ScaleType.FIT_CENTER
+        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(altoDp))
+        lp.topMargin = 16
+        iv.layoutParams = lp
+        contenedor.addView(iv)
+    }
+
     private fun animarEntrada() {
         for (i in 0 until contenedor.childCount) {
             val v = contenedor.getChildAt(i)
@@ -584,6 +624,7 @@ class MainActivity : AppCompatActivity() {
         texto("${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]}", 14f, 16)
             .setTextColor(colorDe(p.categoria))
         texto(p.texto, 24f, 24)
+        agregarImagen(p)
 
         val correctaTexto = p.opciones[p.correcta]
         var contestada = false
@@ -1025,6 +1066,7 @@ class MainActivity : AppCompatActivity() {
         contenedor.addView(barra)
 
         texto(p.texto, 24f, 32)
+        agregarImagen(p)
 
         val correctaTexto = p.opciones[p.correcta]
         val botones = ArrayList<Button>()
@@ -1249,7 +1291,12 @@ class MainActivity : AppCompatActivity() {
         return "Vidas: " + "♥".repeat(vidas) + "   Puntos: $puntos   Racha: $racha"
     }
 
-    private fun idDe(p: Pregunta): String = p.texto.hashCode().toString()
+    private fun idDe(p: Pregunta): String {
+        if (p.imagen == null) {
+            return p.texto.hashCode().toString()
+        }
+        return (p.texto + "|" + p.imagen).hashCode().toString()
+    }
 
     private fun idsFalladas(): Set<String> {
         val guardado = prefs().getStringSet("falladas_ids", null) ?: return emptySet()
@@ -1435,6 +1482,7 @@ class MainActivity : AppCompatActivity() {
         texto("${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]}", 14f, 12)
             .setTextColor(colorDe(p.categoria))
         texto(p.texto, 24f, 24)
+        agregarImagen(p)
 
         val correctaTexto = p.opciones[p.correcta]
         val botones = ArrayList<Button>()
@@ -1551,6 +1599,7 @@ class MainActivity : AppCompatActivity() {
             texto("Para repasar", 22f, 40)
             for (f in falladas) {
                 texto("✗ ${f.texto}", 16f, 24)
+                agregarImagen(f, 100)
                 texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
                     .setTextColor(Color.parseColor("#43A047"))
             }
@@ -1595,6 +1644,7 @@ class MainActivity : AppCompatActivity() {
             texto("Para repasar", 22f, 40)
             for (f in falladas) {
                 texto("✗ ${f.texto}", 16f, 24)
+                agregarImagen(f, 100)
                 texto("Respuesta correcta: ${f.opciones[f.correcta]}", 16f, 4)
                     .setTextColor(Color.parseColor("#43A047"))
             }
