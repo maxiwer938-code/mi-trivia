@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.app.TimePickerDialog
 import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -42,7 +43,8 @@ data class Pregunta(
     val texto: String,
     val opciones: List<String>,
     val correcta: Int,
-    val imagen: String? = null
+    val imagen: String? = null,
+    val explicacion: String? = null
 )
 
 private class Mision(val id: String, val desc: String, val meta: Int, val premio: Int)
@@ -148,6 +150,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tiempoContraView: TextView
     private lateinit var barraContra: ProgressBar
     private var modoSuper = false
+    private var modoVF = false
+    private var vfTodas: List<Pregunta> = emptyList()
     private var aciertosPartida = 0
     private var sonido = true
     private var musica = true
@@ -170,6 +174,10 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.hide()
         todas = cargarPreguntas()
         datos = cargarDatos()
+        vfTodas = cargarVF()
+        if (prefs().getBoolean("recordatorio", false)) {
+            Recordatorios.programar(this)
+        }
         sonido = prefs().getBoolean("sonido", true)
         musica = prefs().getBoolean("musica", true)
         sonidoOk = generarTono(listOf(523, 659, 784), 90, 0.5, false)
@@ -325,6 +333,36 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
+    }
+
+    private fun cargarVF(): List<Pregunta> {
+        val lista = ArrayList<Pregunta>()
+        val archivos: Array<String> = assets.list("") ?: emptyArray()
+        for (nombre in archivos) {
+            if (nombre.startsWith("vf") && nombre.endsWith(".json")) {
+                try {
+                    val json = assets.open(nombre).bufferedReader().use { it.readText() }
+                    val arr = JSONArray(json)
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        lista.add(
+                            Pregunta(
+                                o.getString("categoria"),
+                                o.getInt("dificultad"),
+                                o.getString("afirmacion"),
+                                listOf("Verdadero", "Falso"),
+                                if (o.getBoolean("verdadero")) 0 else 1,
+                                null,
+                                o.optString("explicacion", "").ifEmpty { null }
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    // archivo mal armado: se saltea
+                }
+            }
+        }
+        return lista
     }
 
     private fun cargarDatos(): Map<String, List<String>> {
@@ -740,6 +778,33 @@ class MainActivity : AppCompatActivity() {
         animarEntrada()
     }
 
+    private fun tiempoActual(): Int = if (modoVF) 8 else tiempoPorPregunta
+
+    private fun empezarVF() {
+        if (vfTodas.isEmpty()) {
+            Toast.makeText(this, "No hay afirmaciones cargadas", Toast.LENGTH_SHORT).show()
+            return
+        }
+        modoVF = true
+        modoSuper = false
+        modoRepaso = false
+        modoContra = false
+        catElegida = "Mezcla"
+        difElegida = 0
+        ronda = vfTodas.shuffled()
+        indice = 0
+        puntos = 0
+        vidas = 3
+        racha = 0
+        aciertosPartida = 0
+        partidaXp = 0
+        partidaMonedas = 0
+        cincuenta = 0
+        saltos = 1
+        falladas.clear()
+        mostrarPregunta()
+    }
+
     private fun empezarSuper() {
         modoSuper = true
         catElegida = "Mezcla"
@@ -749,6 +814,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarCategorias() {
         pantalla = "inicio"
+        modoVF = false
         timer?.cancel()
         timerContra?.cancel()
         modoContra = false
@@ -857,6 +923,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostrarJugar() {
         pantalla = "jugar"
+        modoVF = false
         timer?.cancel()
         timerContra?.cancel()
         modoContra = false
@@ -877,6 +944,10 @@ class MainActivity : AppCompatActivity() {
         texto("60 segundos para acertar todas las que puedas. Cada error te resta 3 segundos.", 13f, 6)
         boton("📖 Repaso  ·  ${idsFalladas().size} pendientes", Color.parseColor("#5E35B1")) { empezarRepaso() }
         texto("Practicá solo las preguntas que fallaste, sin perder vidas.", 13f, 6)
+        boton("✅❌ Verdadero o falso  ·  récord ${prefs().getInt("record_vf", 0)}", Color.parseColor("#00897B")) {
+            empezarVF()
+        }
+        texto("Decidí si la afirmación es cierta. Solo 8 segundos por pregunta.", 13f, 6)
         boton("Volver") { mostrarCategorias() }
         animarEntrada()
     }
@@ -933,6 +1004,36 @@ class MainActivity : AppCompatActivity() {
             mostrarConfig()
         }
 
+        texto("🔔 Recordatorio diario", 18f, 28)
+        val recOn = prefs().getBoolean("recordatorio", false)
+        boton("Recordatorio: " + (if (recOn) "SÍ" else "NO"), Color.DKGRAY) {
+            val nuevo = !prefs().getBoolean("recordatorio", false)
+            prefs().edit().putBoolean("recordatorio", nuevo).apply()
+            if (nuevo) {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 77)
+                }
+                Recordatorios.programar(this)
+            } else {
+                Recordatorios.cancelar(this)
+            }
+            mostrarConfig()
+        }
+        if (recOn) {
+            val hh = prefs().getInt("recordatorio_hora", 20)
+            val mm = prefs().getInt("recordatorio_min", 0)
+            boton("🕗 Hora del aviso: %02d:%02d  (cambiar)".format(hh, mm), Color.parseColor("#546E7A")) {
+                TimePickerDialog(this, { _, h, m ->
+                    prefs().edit().putInt("recordatorio_hora", h).putInt("recordatorio_min", m).apply()
+                    Recordatorios.programar(this)
+                    mostrarConfig()
+                }, hh, mm, true).show()
+            }
+            texto("Te avisa una vez por día si todavía no respondiste la pregunta del día.", 13f, 6)
+        }
+
         texto("🎨 Fondo de la app", 18f, 28)
         for (t in temas) {
             val activo = prefs().getString("tema_activo", "clasico") == t.id
@@ -956,6 +1057,7 @@ class MainActivity : AppCompatActivity() {
                 "• Pregunta del día: una por día, y cuenta tu racha de días.\n" +
                 "• Supervivencia: preguntas cada vez más difíciles hasta quedarte sin vidas.\n" +
                 "• Contrarreloj: 60 segundos, cada error te resta 3.\n" +
+                "• Verdadero o falso: 8 segundos para decidir si la afirmación es cierta.\n" +
                 "• Acertando ganás monedas 🪙 y experiencia para subir de nivel; en la tienda comprás ayudas.",
             14f, 8
         )
@@ -977,6 +1079,7 @@ class MainActivity : AppCompatActivity() {
                 seguro = true
                 bBorrar.text = "¿Seguro? Tocá de nuevo para borrar todo"
             } else {
+                Recordatorios.cancelar(this)
                 prefs().edit().clear().putBoolean("sonido", sonido).putBoolean("musica", musica).apply()
                 aplicarTema()
                 Toast.makeText(this, "Listo, todo borrado", Toast.LENGTH_SHORT).show()
@@ -1008,6 +1111,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun empezar() {
+        modoVF = false
         var f = todas
         if (catElegida != "Mezcla") {
             f = f.filter { it.categoria == catElegida }
@@ -1051,12 +1155,12 @@ class MainActivity : AppCompatActivity() {
             "${conEmoji(p.categoria)} · ${nombresDif[p.dificultad - 1]} · $progreso",
             14f, 8
         ).setTextColor(colorDe(p.categoria))
-        tiempoView = texto("Tiempo: $tiempoPorPregunta", 18f, 8)
+        tiempoView = texto("Tiempo: ${tiempoActual()}", 18f, 8)
 
         barra = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        barra.max = tiempoPorPregunta * 1000
-        barra.progress = tiempoPorPregunta * 1000
-        barra.progressTintList = ColorStateList.valueOf(colorBarra(tiempoPorPregunta * 1000L))
+        barra.max = tiempoActual() * 1000
+        barra.progress = tiempoActual() * 1000
+        barra.progressTintList = ColorStateList.valueOf(colorBarra(tiempoActual() * 1000L))
         val lpBarra = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(10)
@@ -1070,7 +1174,7 @@ class MainActivity : AppCompatActivity() {
 
         val correctaTexto = p.opciones[p.correcta]
         val botones = ArrayList<Button>()
-        for (op in p.opciones.shuffled()) {
+        for (op in (if (p.opciones.size == 2) p.opciones else p.opciones.shuffled())) {
             val b = boton(op, Color.LTGRAY, Color.BLACK) { }
             b.setOnClickListener { responder(b, op == correctaTexto, p, botones, correctaTexto) }
             botones.add(b)
@@ -1078,6 +1182,7 @@ class MainActivity : AppCompatActivity() {
 
         var usado50 = false
         val b50 = boton("50/50  (quedan $cincuenta)") { }
+        if (modoVF) b50.visibility = View.GONE
         b50.setOnClickListener {
             if (respondida || cincuenta <= 0 || usado50) return@setOnClickListener
             usado50 = true
@@ -1102,7 +1207,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val inv5050 = prefs().getInt("inv_5050", 0)
-        if (inv5050 > 0) {
+        if (inv5050 > 0 && !modoVF) {
             val bExtra = boton("🎯 50/50 extra  (tenés $inv5050)", Color.parseColor("#2E7D32")) { }
             bExtra.setOnClickListener {
                 if (respondida || usado50) return@setOnClickListener
@@ -1162,7 +1267,7 @@ class MainActivity : AppCompatActivity() {
         p: Pregunta,
         botones: List<Button>,
         correctaTexto: String,
-        duracion: Long = tiempoPorPregunta * 1000L
+        duracion: Long = tiempoActual() * 1000L
     ) {
         restanteMs = duracion
         timer?.cancel()
@@ -1253,7 +1358,11 @@ class MainActivity : AppCompatActivity() {
         t.setTextColor(if (acierto) Color.parseColor("#66BB6A") else Color.parseColor("#EF5350"))
         t.setTypeface(null, Typeface.BOLD)
 
-        val dato = datoDe(p.categoria)
+        if (p.explicacion != null) {
+            texto("💡 Explicación", 16f, 20).setTextColor(colorDe(p.categoria))
+            texto(p.explicacion, 16f, 4)
+        }
+        val dato = if (modoVF) null else datoDe(p.categoria)
         if (dato != null) {
             texto("¿Sabías que...?", 16f, 20).setTextColor(colorDe(p.categoria))
             texto(dato, 16f, 4)
@@ -1304,6 +1413,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun marcarFallada(p: Pregunta) {
+        if (modoVF) return
         val nuevo = HashSet(idsFalladas())
         nuevo.add(idDe(p))
         prefs().edit().putStringSet("falladas_ids", nuevo).apply()
@@ -1322,6 +1432,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Todavía no tenés preguntas para repasar", Toast.LENGTH_SHORT).show()
             return
         }
+        modoVF = false
         modoSuper = false
         modoContra = false
         modoRepaso = true
@@ -1440,6 +1551,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun empezarContra() {
         if (todas.isEmpty()) return
+        modoVF = false
         modoSuper = false
         modoRepaso = false
         modoContra = true
@@ -1616,7 +1728,7 @@ class MainActivity : AppCompatActivity() {
         contenedor.removeAllViews()
         contenedor.translationX = 0f
         scroll.scrollTo(0, 0)
-        val clave = if (modoSuper) "record_super" else "record_${catElegida}_$difElegida"
+        val clave = if (modoVF) "record_vf" else if (modoSuper) "record_super" else "record_${catElegida}_$difElegida"
         val anterior = prefs().getInt(clave, 0)
         val nuevo = puntos > anterior
         if (nuevo) {
@@ -1633,9 +1745,9 @@ class MainActivity : AppCompatActivity() {
         }
         texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
-        boton("Jugar de nuevo", colorDe(catElegida)) { empezar() }
+        boton("Jugar de nuevo", colorDe(catElegida)) { if (modoVF) empezarVF() else empezar() }
         boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
-            val modoTxt = if (modoSuper) "Supervivencia" else catElegida
+            val modoTxt = if (modoVF) "Verdadero o falso" else if (modoSuper) "Supervivencia" else catElegida
             compartirTexto("Hice $puntos puntos en Trivia Max ($modoTxt) 🔥 ¿Me ganás? ¡A jugar y ganar!")
         }
         boton("Elegir otro modo o categoría") { mostrarJugar() }
