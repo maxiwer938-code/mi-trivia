@@ -2,6 +2,10 @@ package com.example.mitrivia
 
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.view.ViewGroup
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -46,6 +50,50 @@ data class Pregunta(
     val imagen: String? = null,
     val explicacion: String? = null
 )
+
+private class ConfetiView(contexto: Context) : View(contexto) {
+    private val n = 90
+    private val px = FloatArray(n) { Math.random().toFloat() }
+    private val vel = FloatArray(n) { 0.6f + Math.random().toFloat() * 0.8f }
+    private val fase = FloatArray(n) { Math.random().toFloat() * 6.28f }
+    private val tam = FloatArray(n) { 8f + Math.random().toFloat() * 10f }
+    private val colores = intArrayOf(
+        Color.parseColor("#FFB300"), Color.parseColor("#E53935"), Color.parseColor("#1E88E5"),
+        Color.parseColor("#43A047"), Color.parseColor("#8E24AA"), Color.parseColor("#00ACC1")
+    )
+    private val pincel = Paint()
+    private var t = 0f
+
+    fun arrancar(alTerminar: () -> Unit) {
+        val a = ValueAnimator.ofFloat(0f, 1f)
+        a.duration = 2600L
+        a.addUpdateListener {
+            t = it.animatedValue as Float
+            invalidate()
+        }
+        a.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                alTerminar()
+            }
+        })
+        a.start()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        for (i in 0 until n) {
+            val y = -30f + t * vel[i] * (h + 60f)
+            val x = px[i] * w + Math.sin((t * 7f + fase[i]).toDouble()).toFloat() * 30f
+            pincel.color = colores[i % colores.size]
+            pincel.alpha = if (t > 0.85f) ((1f - t) / 0.15f * 255f).toInt().coerceIn(0, 255) else 255
+            c.save()
+            c.rotate(t * 360f * vel[i] + fase[i] * 20f, x, y)
+            c.drawRect(x, y, x + tam[i], y + tam[i] * 0.6f, pincel)
+            c.restore()
+        }
+    }
+}
 
 private class Mision(val id: String, val desc: String, val meta: Int, val premio: Int)
 
@@ -830,6 +878,8 @@ class MainActivity : AppCompatActivity() {
         boton("$etiquetaDia  ·  racha ${rachaDias()}", Color.parseColor("#F9A825"), Color.BLACK) {
             mostrarDelDia()
         }
+        val etiquetaCofre = if (cofreAbierto()) "🎁 Cofre diario ✓" else "🎁 Cofre diario · ¡listo para abrir!"
+        boton(etiquetaCofre, Color.parseColor("#E64A19")) { mostrarCofre() }
         boton("🎯 Misiones  (${misionesCompletas()}/3)", Color.parseColor("#C2185B")) { mostrarMisiones() }
         boton("🏅 Logros  (${logros.count { tiene(it.id) }}/${logros.size})", Color.parseColor("#6D4C41")) {
             mostrarLogros()
@@ -853,6 +903,128 @@ class MainActivity : AppCompatActivity() {
         return n
     }
 
+    private fun confeti() {
+        try {
+            val raiz = window.decorView as ViewGroup
+            val c = ConfetiView(this)
+            raiz.addView(c, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            c.arrancar { raiz.removeView(c) }
+        } catch (e: Exception) {
+            // nada
+        }
+    }
+
+    private fun rangoDe(nivel: Int): String {
+        return when {
+            nivel >= 40 -> "🏆 Leyenda"
+            nivel >= 30 -> "👑 Maestro"
+            nivel >= 20 -> "🔥 Genio"
+            nivel >= 15 -> "🧠 Sabelotodo"
+            nivel >= 10 -> "🎓 Experto"
+            nivel >= 8 -> "⚡ Listo"
+            nivel >= 5 -> "🔍 Curioso"
+            nivel >= 3 -> "📘 Aprendiz"
+            else -> "🌱 Novato"
+        }
+    }
+
+    // suma XP y monedas; devuelve un aviso si se subió de nivel
+    private fun sumarPremio(xp: Int, mon: Int): String? {
+        val antes = nivelDe(xpTotal())
+        val xpNuevo = xpTotal() + xp
+        var monedasNuevas = monedas() + mon
+        val despues = nivelDe(xpNuevo)
+        var aviso: String? = null
+        if (despues > antes) {
+            val premio = 25 * (despues - antes)
+            monedasNuevas += premio
+            aviso = "🎉 ¡Nivel $despues! ${rangoDe(despues)}  +$premio monedas"
+        }
+        prefs().edit().putInt("xp", xpNuevo).putInt("monedas", monedasNuevas).apply()
+        return aviso
+    }
+
+    private fun cofreAbierto(): Boolean = prefs().getInt("cofre_ultimo", -1) == diaHoy()
+
+    private fun cofreRacha(): Int {
+        val ultimo = prefs().getInt("cofre_ultimo", -1)
+        val hoy = diaHoy()
+        if (ultimo == hoy || ultimo == hoy - 1) return prefs().getInt("cofre_racha", 0)
+        return 0
+    }
+
+    private fun mostrarCofre() {
+        pantalla = "cofre"
+        timer?.cancel()
+        contenedor.removeAllViews()
+        contenedor.translationX = 0f
+        scroll.scrollTo(0, 0)
+        texto("🎁 Cofre diario", 28f)
+        texto("Abrí un cofre por día y ganá premios. Si lo abrís varios días seguidos, el premio crece.", 14f, 8)
+        val cofre = texto("🎁", 110f, 24)
+        cofre.gravity = Gravity.CENTER_HORIZONTAL
+        val resultado = texto("", 20f, 16)
+        resultado.gravity = Gravity.CENTER_HORIZONTAL
+        resultado.setTypeface(null, Typeface.BOLD)
+        resultado.setTextColor(Color.parseColor("#FFB300"))
+        texto("Racha de cofres: ${cofreRacha()} 🔥", 14f, 8).gravity = Gravity.CENTER_HORIZONTAL
+
+        val abrir = boton(
+            if (cofreAbierto()) "Ya abriste el de hoy · volvé mañana" else "🎁 Abrir cofre",
+            if (cofreAbierto()) Color.GRAY else Color.parseColor("#E64A19")
+        ) { }
+        abrir.setOnClickListener {
+            if (cofreAbierto()) {
+                Toast.makeText(this, "Volvé mañana por otro cofre", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val hoy = diaHoy()
+            val ultimo = prefs().getInt("cofre_ultimo", -1)
+            val racha = if (ultimo == hoy - 1) prefs().getInt("cofre_racha", 0) + 1 else 1
+            prefs().edit().putInt("cofre_ultimo", hoy).putInt("cofre_racha", racha).apply()
+            abrir.text = "Ya abriste el de hoy · volvé mañana"
+            abrir.background = fondo(Color.GRAY)
+            val bonus = minOf(racha, 7) * 5
+            val tirada = (0 until 100).random()
+            val descr: String
+            var aviso: String? = null
+            if (tirada < 55) {
+                val m = (15..40).random() + bonus
+                aviso = sumarPremio(0, m)
+                descr = "+$m 🪙 monedas"
+            } else if (tirada < 75) {
+                val x = (80..200).random() + bonus * 2
+                aviso = sumarPremio(x, 0)
+                descr = "+$x ⭐ XP"
+            } else if (tirada < 85) {
+                prefs().edit().putInt("inv_5050", prefs().getInt("inv_5050", 0) + 1).apply()
+                descr = "🎯 Un 50/50 extra"
+            } else if (tirada < 93) {
+                prefs().edit().putInt("inv_tiempo", prefs().getInt("inv_tiempo", 0) + 1).apply()
+                descr = "⏱️ Un +10 segundos"
+            } else {
+                prefs().edit().putInt("inv_vida", prefs().getInt("inv_vida", 0) + 1).apply()
+                descr = "❤️ ¡Una vida extra!"
+            }
+            val a = ObjectAnimator.ofFloat(cofre, "rotation", 0f, -18f, 18f, -18f, 18f, -10f, 10f, 0f)
+            a.duration = 700L
+            a.start()
+            Handler(Looper.getMainLooper()).postDelayed({
+                cofre.text = "✨"
+                resultado.text = "¡Ganaste! $descr"
+                rebote(cofre)
+                sonar(sonidoOk)
+                vibrar(40L)
+                confeti()
+                if (aviso != null) {
+                    Toast.makeText(this, aviso, Toast.LENGTH_LONG).show()
+                }
+            }, 750L)
+        }
+        boton("Volver") { mostrarCategorias() }
+        animarEntrada()
+    }
+
     private fun darRecompensa(ganados: Int) {
         val antes = nivelDe(xpTotal())
         val xpNuevo = xpTotal() + ganados * 10
@@ -861,7 +1033,8 @@ class MainActivity : AppCompatActivity() {
         if (despues > antes) {
             val premio = 25 * (despues - antes)
             mon += premio
-            Toast.makeText(this, "🎉 ¡Nivel $despues! +$premio monedas", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "🎉 ¡Nivel $despues! ${rangoDe(despues)}  +$premio monedas", Toast.LENGTH_LONG).show()
+            confeti()
         }
         prefs().edit().putInt("xp", xpNuevo).putInt("monedas", mon).apply()
         partidaXp += ganados * 10
@@ -873,7 +1046,11 @@ class MainActivity : AppCompatActivity() {
         val n = nivelDe(xp)
         val base = umbral(n)
         val siguiente = umbral(n + 1)
-        texto("⭐ Nivel $n   ·   🪙 ${monedas()} monedas", 18f, 12).gravity = Gravity.CENTER_HORIZONTAL
+        val rango = texto(rangoDe(n), 24f, 12)
+        rango.gravity = Gravity.CENTER_HORIZONTAL
+        rango.setTypeface(null, Typeface.BOLD)
+        rango.setTextColor(Color.parseColor("#FFB300"))
+        texto("⭐ Nivel $n   ·   🪙 ${monedas()} monedas", 18f, 4).gravity = Gravity.CENTER_HORIZONTAL
         val b = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
         b.max = siguiente - base
         b.progress = xp - base
@@ -1701,6 +1878,7 @@ class MainActivity : AppCompatActivity() {
         texto("Puntos: $puntos", 22f, 24)
         texto("Aciertos: $aciertosPartida  ·  Errores: $erroresContra", 18f, 8)
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
+        if (nuevo && anterior > 0) confeti()
         texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
         boton("Jugar de nuevo", colorDe("Contrarreloj")) { empezarContra() }
         boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
@@ -1745,6 +1923,7 @@ class MainActivity : AppCompatActivity() {
         }
         texto("Ganaste +$partidaXp XP y +$partidaMonedas 🪙", 14f, 8)
         texto(if (nuevo) "🏆 ¡Nuevo récord!" else "Tu récord: $anterior", 18f, 8)
+        if (nuevo && anterior > 0) confeti()
         boton("Jugar de nuevo", colorDe(catElegida)) { if (modoVF) empezarVF() else empezar() }
         boton("📤 Compartir mi puntaje", Color.parseColor("#2E7D32")) {
             val modoTxt = if (modoVF) "Verdadero o falso" else if (modoSuper) "Supervivencia" else catElegida
